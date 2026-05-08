@@ -44,13 +44,15 @@ export function useWorkflowExecution() {
 
         // Update node statuses from DB
         for (const nodeRun of run.nodeRuns ?? []) {
-          const statusMap: Record<string, Parameters<typeof setNodeStatus>[1]> =
-            {
-              PENDING: "queued",
-              RUNNING: "running",
-              SUCCESS: "success",
-              FAILED: "failed",
-            };
+          const statusMap: Record<
+            string,
+            "queued" | "running" | "success" | "failed" | "idle"
+          > = {
+            PENDING: "queued",
+            RUNNING: "running",
+            SUCCESS: "success",
+            FAILED: "failed",
+          };
           const status = statusMap[nodeRun.status] ?? "idle";
           useExecutionStore.getState().setNodeStatus(nodeRun.nodeId, status);
 
@@ -105,11 +107,12 @@ export function useWorkflowExecution() {
     const currentNodes = useWorkflowEditorStore.getState().nodes;
     const currentEdges = useWorkflowEditorStore.getState().edges;
 
-    const { dag, error } = compileDAG(currentNodes, currentEdges);
-    if (!dag || error) {
+    const { dag: compiledDag, error } = compileDAG(currentNodes, currentEdges);
+    if (!compiledDag || error) {
       console.error(`[NextFlow] ❌ DAG compile failed:`, error?.message);
       return;
     }
+    const dag = compiledDag;
 
     let executionSet: Set<string>;
     if (scope === "full") {

@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from "react";
 import { nanoid } from "nanoid";
-import type { UploadedAsset, HandleDataType } from "../types";
+import type { UploadedAsset } from "../types";
+import { HandleDataType } from "../types";
 import { validateImageFile } from "@/lib/media/utils/validation";
 
 export type UploadState = "idle" | "uploading" | "done" | "error";
@@ -70,10 +71,10 @@ export function useFileUpload({
           mimeType: file.type,
           size: file.size,
           type: file.type.startsWith("video/")
-            ? "video"
+            ? HandleDataType.VIDEO
             : file.type.startsWith("audio/")
-              ? "audio"
-              : "image",
+              ? HandleDataType.AUDIO
+              : HandleDataType.IMAGE,
           source: "transloadit",
         };
         onUpload(asset);
@@ -201,10 +202,10 @@ async function uploadLocal(
     mimeType: file.type,
     size: file.size,
     type: file.type.startsWith("video/")
-      ? "video"
+      ? HandleDataType.VIDEO
       : file.type.startsWith("audio/")
-        ? "audio"
-        : "image",
+        ? HandleDataType.AUDIO
+        : HandleDataType.IMAGE,
     source: "local",
   };
 

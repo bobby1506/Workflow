@@ -46,6 +46,8 @@ export const workflowOrchestratorTask = task({
       return;
     }
 
+    const safeDag = dag!;
+
     let executionSet: Set<string>;
     if (scope === "FULL") {
       executionSet = new Set((nodes as WorkflowNode[]).map((n) => n.id));
@@ -55,7 +57,7 @@ export const workflowOrchestratorTask = task({
       executionSet = new Set((nodes as WorkflowNode[]).map((n) => n.id));
     }
 
-    const executionNodeIds = dag.executionOrder.filter((id) =>
+    const executionNodeIds = safeDag.executionOrder.filter((id) =>
       executionSet.has(id),
     );
 
@@ -82,7 +84,7 @@ export const workflowOrchestratorTask = task({
     const skipped = new Set<string>();
 
     function isReady(nodeId: string): boolean {
-      const compiled = dag.nodes.get(nodeId);
+      const compiled = safeDag.nodes.get(nodeId);
       if (!compiled) return false;
       const upstreamInSet = compiled.upstreamIds.filter((id) =>
         executionSet.has(id),
@@ -93,7 +95,7 @@ export const workflowOrchestratorTask = task({
     }
 
     function shouldSkip(nodeId: string): boolean {
-      const compiled = dag.nodes.get(nodeId);
+      const compiled = safeDag.nodes.get(nodeId);
       if (!compiled) return false;
       return compiled.upstreamIds
         .filter((id) => executionSet.has(id))
@@ -105,7 +107,7 @@ export const workflowOrchestratorTask = task({
       if (!node) return;
 
       const nodeType = node.type ?? "unknown";
-      const compiled = dag.nodes.get(nodeId)!;
+      const compiled = safeDag.nodes.get(nodeId)!;
 
       if (shouldSkip(nodeId)) {
         skipped.add(nodeId);

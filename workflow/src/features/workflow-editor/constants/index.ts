@@ -31,10 +31,6 @@ export const HANDLE_COLORS: Record<string, string> = {
   [HandleDataType.AUDIO]: "#22c55e", // green
   [HandleDataType.FILE]: "#eab308", // yellow
   [HandleDataType.GENERIC]: "#6366f1", // indigo
-  // legacy keys
-  text: "#f97316",
-  image: "#3b82f6",
-  generic: "#6366f1",
 };
 
 // ─── Gemini models ────────────────────────────────────────────────────────────
