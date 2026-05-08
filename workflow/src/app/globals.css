@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-inter);
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    var(--font-inter),
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Execution glow animations ─────────────────────────────────────────────── */
+
+@keyframes nextflow-pulse-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 4px rgba(99, 102, 241, 0.2),
+      0 0 16px rgba(99, 102, 241, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px rgba(99, 102, 241, 0.35),
+      0 0 28px rgba(99, 102, 241, 0.35);
+  }
+}
+
+@keyframes nextflow-stream-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 4px rgba(139, 92, 246, 0.2),
+      0 0 16px rgba(139, 92, 246, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px rgba(139, 92, 246, 0.4),
+      0 0 28px rgba(139, 92, 246, 0.4);
+  }
+}
+
+/* Apply pulsating glow to running nodes */
+.nextflow-node-running {
+  animation: nextflow-pulse-glow 1.5s ease-in-out infinite;
+}
+
+.nextflow-node-streaming {
+  animation: nextflow-stream-glow 1s ease-in-out infinite;
+}
+
+/* ─── Reduced motion support ─────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── React Flow overrides ───────────────────────────────────────────────────── */
+
+.react-flow__node {
+  transition: filter 0.2s ease;
+}
+
+.react-flow__node:hover {
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.08));
+}
+
+/* Remove the default ReactFlow selection outline — nodes handle their own border */
+.react-flow__node.selected > div {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.react-flow__node.selected {
+  /* No extra outline — the node component handles selected border */
+  filter: none;
+}
+
+/* Remove the light-blue selection rectangle that ReactFlow adds */
+.react-flow__nodesselection-rect,
+.react-flow__selection {
+  border: 1.5px dashed #6366f1 !important;
+  background: rgba(99, 102, 241, 0.04) !important;
+}
+
+/* Smooth edge rendering */
+.react-flow__edge-path {
+  transition:
+    stroke 0.3s ease,
+    stroke-width 0.2s ease;
+}
+
+/* ─── Focus styles — remove dark blue ring from all inputs globally ──────────── */
+
+/* Remove browser default focus ring everywhere */
+*:focus {
+  outline: none !important;
+}
+
+*:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Inputs and textareas — subtle border change on focus only */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* ─── Scrollbar polish ───────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #d1d5db;
+}
