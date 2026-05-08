@@ -1,0 +1,135 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum RunStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+  PARTIAL
+}
+
+enum RunScope {
+  FULL
+  PARTIAL
+  SINGLE_NODE
+}
+
+enum NodeRunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+// ─────────────────────────────────────────────
+// User
+// Mirrors Clerk user — clerkId is the source of truth
+// ─────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String?
+
+  workflows Workflow[]
+  runs      Run[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clerkId])
+}
+
+// ─────────────────────────────────────────────
+// Workflow
+// Stores the full React Flow graph as JSON
+// ─────────────────────────────────────────────
+
+model Workflow {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name             String
+  nodes            Json     @default("[]")
+  edges            Json     @default("[]")
+  viewport         Json     @default("{\"x\":0,\"y\":0,\"zoom\":1}")
+
+  // Template system
+  isTemplate       Boolean  @default(false)
+  isReadonly       Boolean  @default(false)
+  templateSourceId String?  // set on cloned workflows — points to source template id
+
+  runs      Run[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  lastRunAt  DateTime?
+
+  @@index([userId])
+  @@index([isTemplate])
+}
+
+// ─────────────────────────────────────────────
+// Run
+// One execution instance of a workflow
+// ─────────────────────────────────────────────
+
+model Run {
+  id         String    @id @default(cuid())
+  workflowId String
+  workflow   Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status     RunStatus @default(RUNNING)
+  scope      RunScope  @default(FULL)
+
+  nodeRuns   NodeRun[]
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  duration   Int?      // milliseconds
+
+  @@index([workflowId])
+  @@index([userId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// NodeRun
+// Tracks every individual node execution — CRITICAL
+// ─────────────────────────────────────────────
+
+model NodeRun {
+  id        String        @id @default(cuid())
+  runId     String
+  run       Run           @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  nodeId    String        // React Flow node id
+  nodeType  String        // e.g. "llm", "input", "output"
+  status    NodeRunStatus @default(PENDING)
+
+  input     Json?
+  output    Json?
+  error     String?
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  duration   Int?      // milliseconds
+
+  @@index([runId])
+  @@index([nodeId])
+  @@index([status])
+}
