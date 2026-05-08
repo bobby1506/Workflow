@@ -22,6 +22,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "fluent-ffmpeg",
     "ffmpeg-static",
+    "ffprobe-static",
     "@prisma/client",
     "pg",
     "fs",

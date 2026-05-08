@@ -1,13 +1,16 @@
 import ffmpeg from "fluent-ffmpeg";
+import ffmpegStatic from "ffmpeg-static";
+import ffprobeStatic from "ffprobe-static";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import type { CropParams, CropResult } from "../types";
 
-// Point fluent-ffmpeg at the system FFmpeg binary
-// Works with Homebrew (macOS) and standard Linux installs
-const FFMPEG_PATH = process.env.FFMPEG_PATH ?? "/opt/homebrew/bin/ffmpeg";
-const FFPROBE_PATH = process.env.FFPROBE_PATH ?? "/opt/homebrew/bin/ffprobe";
+// Prefer explicit env vars, then bundled static binaries, then local system paths.
+const FFMPEG_PATH =
+  process.env.FFMPEG_PATH ?? ffmpegStatic ?? "/opt/homebrew/bin/ffmpeg";
+const FFPROBE_PATH =
+  process.env.FFPROBE_PATH ?? ffprobeStatic.path ?? "/opt/homebrew/bin/ffprobe";
 
 if (fs.existsSync(FFMPEG_PATH)) {
   ffmpeg.setFfmpegPath(FFMPEG_PATH);
@@ -46,6 +49,17 @@ export async function cropImageWithFFmpeg(
   imageUrl: string,
   params: CropParams,
 ): Promise<CropResult> {
+  if (!fs.existsSync(FFMPEG_PATH)) {
+    throw new Error(
+      "FFmpeg binary is not available. Set FFMPEG_PATH or install ffmpeg-static.",
+    );
+  }
+  if (!fs.existsSync(FFPROBE_PATH)) {
+    throw new Error(
+      "ffprobe binary is not available. Set FFPROBE_PATH or install ffprobe-static.",
+    );
+  }
+
   const tmpDir = os.tmpdir();
   const ts = Date.now();
   const inputPath = path.join(tmpDir, `nextflow_input_${ts}.jpg`);
