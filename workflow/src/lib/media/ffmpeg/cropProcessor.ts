@@ -8,11 +8,11 @@ import type { CropParams, CropResult } from "../types";
 
 // Prefer explicit env vars, then bundled static binaries, then local system paths.
 const FFMPEG_PATH =
-  process.env.FFMPEG_PATH ?? ffmpegStatic ?? "/opt/homebrew/bin/ffmpeg";
+  process.env.FFMPEG_PATH ??
+  ffmpegStatic ??
+  "ffmpeg";
 
-if (fs.existsSync(FFMPEG_PATH)) {
-  ffmpeg.setFfmpegPath(FFMPEG_PATH);
-}
+ffmpeg.setFfmpegPath(FFMPEG_PATH);
 
 /**
  * Downloads an image from a URL or data URL to a temp file.
@@ -44,11 +44,6 @@ export async function cropImageWithFFmpeg(
   imageUrl: string,
   params: CropParams,
 ): Promise<CropResult> {
-  if (!fs.existsSync(FFMPEG_PATH)) {
-    throw new Error(
-      "FFmpeg binary is not available. Set FFMPEG_PATH or install ffmpeg-static.",
-    );
-  }
 
   const tmpDir = os.tmpdir();
   const ts = Date.now();
