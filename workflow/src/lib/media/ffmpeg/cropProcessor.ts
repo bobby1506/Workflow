@@ -1,18 +1,9 @@
-import ffmpeg from "fluent-ffmpeg";
-import ffmpegStatic from "ffmpeg-static";
 import sharp from "sharp";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import type { CropParams, CropResult } from "../types";
 
-// Prefer explicit env vars, then bundled static binaries, then local system paths.
-const FFMPEG_PATH =
-  process.env.FFMPEG_PATH ??
-  ffmpegStatic ??
-  "ffmpeg";
-
-ffmpeg.setFfmpegPath(FFMPEG_PATH);
 
 /**
  * Downloads an image from a URL or data URL to a temp file.
@@ -36,7 +27,7 @@ async function downloadImage(url: string, destPath: string): Promise<void> {
 }
 
 /**
- * Crops an image using FFmpeg with percentage-based parameters.
+ * Crops an image using Sharp with percentage-based parameters.
  * Returns the cropped image as a base64 data URL.
  * Transloadit is NOT used here — base64 works directly with Gemini Vision API.
  */
@@ -44,7 +35,6 @@ export async function cropImageWithFFmpeg(
   imageUrl: string,
   params: CropParams,
 ): Promise<CropResult> {
-
   const tmpDir = os.tmpdir();
   const ts = Date.now();
   const inputPath = path.join(tmpDir, `nextflow_input_${ts}.jpg`);
@@ -54,7 +44,7 @@ export async function cropImageWithFFmpeg(
     // Download source image
     await downloadImage(imageUrl, inputPath);
 
-    // Get image dimensions using ffprobe
+    // Get image dimensions using sharp
     const dimensions = await getImageDimensions(inputPath);
     const { width: imgW, height: imgH } = dimensions;
 
@@ -70,18 +60,16 @@ export async function cropImageWithFFmpeg(
     const clampedW = Math.min(cropW, imgW - clampedX);
     const clampedH = Math.min(cropH, imgH - clampedY);
 
-    // Run FFmpeg crop
-    await new Promise<void>((resolve, reject) => {
-      ffmpeg(inputPath)
-        .videoFilter(`crop=${clampedW}:${clampedH}:${clampedX}:${clampedY}`)
-        .output(outputPath)
-        .on("start", () => {})
-        .on("end", () => {
-          resolve();
-        })
-        .on("error", (err) => reject(new Error(`FFmpeg error: ${err.message}`)))
-        .run();
-    });
+    // Run crop using Sharp so we do not depend on external FFmpeg binaries.
+    await sharp(inputPath)
+      .extract({
+        left: clampedX,
+        top: clampedY,
+        width: clampedW,
+        height: clampedH,
+      })
+      .jpeg()
+      .toFile(outputPath);
 
     // Read cropped file and return as base64 data URL
     // Base64 works directly with Gemini Vision API — no CDN upload needed
