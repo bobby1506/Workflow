@@ -143,11 +143,22 @@ async function notifyNodeStatus(
   durationMs?: number,
 ): Promise<void> {
   try {
-    await fetch(`${baseUrl}/api/internal/node-event`, {
+    const callbackUrl = `${baseUrl}/api/internal/node-event`;
+    const secret = process.env.INTERNAL_API_SECRET;
+
+    logger.info("Sending callback", {
+      nodeId,
+      status,
+      callbackUrl,
+      hasSecret: !!secret,
+      secretLength: secret?.length,
+    });
+
+    const response = await fetch(callbackUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-internal-secret": process.env.INTERNAL_API_SECRET ?? "",
+        "x-internal-secret": secret ?? "",
       },
       body: JSON.stringify({
         runId,
@@ -160,8 +171,30 @@ async function notifyNodeStatus(
         durationMs,
       }),
     });
+
+    if (!response.ok) {
+      const text = await response.text();
+      logger.error("Callback failed", {
+        nodeId,
+        status,
+        statusCode: response.status,
+        statusText: response.statusText,
+        responseBody: text.substring(0, 500),
+        callbackUrl,
+      });
+      throw new Error(
+        `Callback failed: ${response.status} ${response.statusText} - ${text}`,
+      );
+    }
+
+    logger.info("Callback successful", { nodeId, status });
   } catch (err) {
-    logger.warn("Failed to notify node status", { nodeId, status, err });
+    logger.error("Failed to notify node status", {
+      nodeId,
+      status,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
   }
 }
 
@@ -174,11 +207,14 @@ async function notifyStreamChunk(
   accumulated: string,
 ): Promise<void> {
   try {
-    await fetch(`${baseUrl}/api/internal/node-event`, {
+    const callbackUrl = `${baseUrl}/api/internal/node-event`;
+    const secret = process.env.INTERNAL_API_SECRET;
+
+    const response = await fetch(callbackUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-internal-secret": process.env.INTERNAL_API_SECRET ?? "",
+        "x-internal-secret": secret ?? "",
       },
       body: JSON.stringify({
         runId,
@@ -189,7 +225,18 @@ async function notifyStreamChunk(
         partialResponse: accumulated,
       }),
     });
-  } catch {
-    // Non-critical — streaming chunks are best-effort
+
+    if (!response.ok) {
+      logger.warn("Stream chunk callback failed", {
+        nodeId,
+        statusCode: response.status,
+        statusText: response.statusText,
+      });
+    }
+  } catch (err) {
+    logger.warn("Stream chunk send error (non-critical)", {
+      nodeId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
