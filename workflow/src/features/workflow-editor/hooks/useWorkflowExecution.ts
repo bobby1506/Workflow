@@ -276,6 +276,17 @@ export function useWorkflowExecution() {
         return;
       }
 
+      // Clean up removed edges from workflow store
+      if (dag.removedEdges.length > 0) {
+        const cleanedEdges = edges.filter(
+          (e) =>
+            !dag.removedEdges.some(
+              (re) => re.source === e.source && re.target === e.target,
+            ),
+        );
+        useWorkflowEditorStore.setState({ edges: cleanedEdges });
+      }
+
       isExecutingRef.current = true;
 
       const scopeMap = {

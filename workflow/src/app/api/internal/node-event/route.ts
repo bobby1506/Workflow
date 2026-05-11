@@ -28,7 +28,9 @@ const nodeEventSchema = z.object({
 
 export async function POST(request: Request) {
   const secret = request.headers.get("x-internal-secret");
+  console.log("Received node event callback",process.env.INTERNAL_API_SECRET, secret);
   if (secret !== process.env.INTERNAL_API_SECRET) {
+
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

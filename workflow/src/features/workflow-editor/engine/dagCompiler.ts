@@ -21,6 +21,8 @@ export interface CompiledDAG {
   executionOrder: string[];
   /** Nodes with no upstream dependencies */
   roots: string[];
+  /** Edges that were filtered out due to missing nodes */
+  removedEdges: WorkflowEdge[];
 }
 
 export interface DAGValidationError {
@@ -103,18 +105,19 @@ export function compileDAG(
   const nodeIds = nodes.map((n) => n.id);
   const nodeSet = new Set(nodeIds);
 
-  // Validate all edge endpoints exist
-  for (const edge of edges) {
-    if (!nodeSet.has(edge.source) || !nodeSet.has(edge.target)) {
-      return {
-        dag: null,
-        error: {
-          type: "missing_node",
-          message: `Edge references unknown node: ${edge.source} → ${edge.target}`,
-        },
-      };
+  // Filter out invalid edges (edges pointing to non-existent nodes)
+  // This prevents workflow corruption from blocking execution
+  const removedEdges: WorkflowEdge[] = [];
+  const validEdges = edges.filter((edge) => {
+    const isValid = nodeSet.has(edge.source) && nodeSet.has(edge.target);
+    if (!isValid) {
+      removedEdges.push(edge);
+      console.warn(
+        `[DAG] Removing invalid edge: ${edge.source} → ${edge.target} (node does not exist)`,
+      );
     }
-  }
+    return isValid;
+  });
 
   // Build adjacency list (source → targets) and in-degree map
   const adjacency = new Map<string, string[]>();
@@ -127,7 +130,7 @@ export function compileDAG(
     inDegree.set(id, 0);
   }
 
-  for (const edge of edges) {
+  for (const edge of validEdges) {
     adjacency.get(edge.source)!.push(edge.target);
     reverseAdj.get(edge.target)!.push(edge.source);
     inDegree.set(edge.target, (inDegree.get(edge.target) ?? 0) + 1);
@@ -152,15 +155,15 @@ export function compileDAG(
       type: node.type ?? "unknown",
       upstreamIds: reverseAdj.get(node.id) ?? [],
       downstreamIds: adjacency.get(node.id) ?? [],
-      incomingEdges: edges.filter((e) => e.target === node.id),
-      outgoingEdges: edges.filter((e) => e.source === node.id),
+      incomingEdges: validEdges.filter((e) => e.target === node.id),
+      outgoingEdges: validEdges.filter((e) => e.source === node.id),
     });
   }
 
   const roots = nodeIds.filter((id) => (inDegree.get(id) ?? 0) === 0);
 
   return {
-    dag: { nodes: compiledNodes, executionOrder, roots },
+    dag: { nodes: compiledNodes, executionOrder, roots, removedEdges },
     error: null,
   };
 }
