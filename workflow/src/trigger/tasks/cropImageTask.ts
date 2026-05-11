@@ -24,6 +24,7 @@ export const cropImageTask = task({
     });
 
     // Notify backend: node is now RUNNING
+    logger.info("call notify")
     await notifyNodeStatus(
       callbackBaseUrl,
       runId,
@@ -98,6 +99,7 @@ export const cropImageTask = task({
       });
 
       // Notify backend: node SUCCESS
+      logger.info("call notify")
       await notifyNodeStatus(
         callbackBaseUrl,
         runId,
@@ -154,6 +156,16 @@ async function notifyNodeStatus(
   workflowId?: string,
 ): Promise<void> {
   try {
+    const e =process.env.INTERNAL_API_SECRET
+    logger.info("Preparing to send node status callback", {
+      nodeId,
+      status,
+      hasOutput: !!output,
+      outputKeys: output ? Object.keys(output) : [],
+      error,
+      baseUrl,
+      e
+    });
     const callbackUrl = `${baseUrl}/api/internal/node-event`;
     const secret = process.env.INTERNAL_API_SECRET;
     
