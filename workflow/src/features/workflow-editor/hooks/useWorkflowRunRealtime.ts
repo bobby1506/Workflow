@@ -27,9 +27,13 @@ function useWorkflowRunRealtimeInternal(
   const previousRunStatusRef = useRef<string | null>(null);
 
   // Subscribe to the run using Trigger.dev's realtime API
-  const { run } = useRealtimeRun(triggerRunId, {
-    accessToken: publicToken,
-  });
+  // Pass undefined if parameters are invalid to avoid API calls
+  const { run } = useRealtimeRun(
+    triggerRunId && publicToken ? triggerRunId : undefined,
+    {
+      accessToken: publicToken ?? undefined,
+    },
+  );
 
   useEffect(() => {
     // Skip if run data not available
