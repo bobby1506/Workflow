@@ -15,21 +15,29 @@ interface UseExecutionProgressParams {
 }
 
 /**
- * Internal hook that actually subscribes to Trigger.dev realtime.
- * This is only called when we have valid parameters.
+ * Hook that derives progress bar data from run metadata.
+ *
+ * Returns:
+ * - completedNodeCount: Number of nodes that have completed
+ * - totalNodeCount: Total number of nodes in the workflow
+ * - percentage: Completion percentage (0-100)
+ *
+ * Returns { completedNodeCount: 0, totalNodeCount: 0, percentage: 0 } if params missing.
  */
-function useExecutionProgressInternal(
-  triggerRunId: string,
-  publicToken: string,
-): ExecutionProgress {
-  // Subscribe to the run using Trigger.dev's realtime API
-  const { run } = useRealtimeRun(triggerRunId, {
-    accessToken: publicToken,
+export function useExecutionProgress({
+  triggerRunId,
+  publicToken,
+}: UseExecutionProgressParams): ExecutionProgress {
+  // Always call the hook — never conditionally
+  const { run } = useRealtimeRun(triggerRunId ?? "", {
+    accessToken: publicToken ?? "",
+    enabled: !!(triggerRunId && publicToken),
   });
 
   // Compute progress from metadata
   const progress = useMemo<ExecutionProgress>(() => {
-    if (!run || !run.metadata) {
+    // Guard: bail out if params aren't ready or run hasn't loaded
+    if (!triggerRunId || !publicToken || !run || !run.metadata) {
       return {
         completedNodeCount: 0,
         totalNodeCount: 0,
@@ -70,38 +78,7 @@ function useExecutionProgressInternal(
       totalNodeCount,
       percentage,
     };
-  }, [run]);
+  }, [run, triggerRunId, publicToken]);
 
   return progress;
-}
-
-/**
- * Hook that derives progress bar data from run metadata.
- *
- * Returns:
- * - completedNodeCount: Number of nodes that have completed
- * - totalNodeCount: Total number of nodes in the workflow
- * - percentage: Completion percentage (0-100)
- *
- * Returns { completedNodeCount: 0, totalNodeCount: 0, percentage: 0 } if params missing.
- *
- * IMPORTANT: This hook only subscribes when both triggerRunId and publicToken are provided.
- * When either is missing, the hook is a no-op and makes no API calls.
- */
-export function useExecutionProgress({
-  triggerRunId,
-  publicToken,
-}: UseExecutionProgressParams): ExecutionProgress {
-  // Only call the internal hook when we have valid parameters
-  if (triggerRunId && publicToken) {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    return useExecutionProgressInternal(triggerRunId, publicToken);
-  }
-
-  // Return default when parameters are missing
-  return {
-    completedNodeCount: 0,
-    totalNodeCount: 0,
-    percentage: 0,
-  };
 }
