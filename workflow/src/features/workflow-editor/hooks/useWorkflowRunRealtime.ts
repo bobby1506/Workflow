@@ -40,27 +40,39 @@ export function useWorkflowRunRealtime({
   console.log("[useWorkflowRunRealtime] Hook called with:", {
     triggerRunId,
     publicToken,
+    hasValidParams: !!(triggerRunId && publicToken),
   });
 
-  // Subscribe to the run using Trigger.dev's realtime API
-  // Pass undefined if parameters are invalid to avoid API calls
-  const { run } = useRealtimeRun(
-    triggerRunId && publicToken ? triggerRunId : undefined,
-    {
-      accessToken: publicToken ?? undefined,
-    },
-  );
-
-  console.log("[useWorkflowRunRealtime] useRealtimeRun returned:", { run });
-
-  useEffect(() => {
-    // Skip if run data not available or parameters are invalid
-    if (!run || !triggerRunId || !publicToken) {
-      console.log("[useWorkflowRunRealtime] Skipping effect - missing data:", {
-        run: !!run,
+  // CRITICAL: Only call useRealtimeRun if we have BOTH triggerRunId and publicToken
+  // If either is missing, we return early and don't call any Trigger.dev hooks
+  // This prevents "Missing accessToken in TriggerAuthContext" errors
+  if (!triggerRunId || !publicToken) {
+    console.log(
+      "[useWorkflowRunRealtime] Skipping hook - missing parameters:",
+      {
         triggerRunId: !!triggerRunId,
         publicToken: !!publicToken,
-      });
+      },
+    );
+    return;
+  }
+
+  // Subscribe to the run using Trigger.dev's realtime API
+  // At this point, we know both parameters are valid
+  const { run } = useRealtimeRun(triggerRunId, {
+    accessToken: publicToken,
+  });
+
+  console.log("[useWorkflowRunRealtime] useRealtimeRun returned:", {
+    hasRun: !!run,
+    runId: run?.id,
+    runStatus: run?.status,
+  });
+
+  useEffect(() => {
+    // At this point, run is guaranteed to exist (we returned early if params were invalid)
+    if (!run) {
+      console.log("[useWorkflowRunRealtime] No run data available yet");
       return;
     }
 
@@ -90,12 +102,20 @@ export function useWorkflowRunRealtime({
     // Process metadata updates
     if (run.metadata) {
       const metadata = run.metadata as Record<string, unknown>;
-      console.log("[useWorkflowRunRealtime] Processing metadata:", metadata);
+      console.log("[useWorkflowRunRealtime] Processing metadata:", {
+        hasNodes: !!metadata.nodes,
+        hasRunStatus: !!metadata.runStatus,
+      });
 
       // Update individual node statuses and outputs
       const nodes = metadata.nodes as Record<string, unknown> | undefined;
       if (nodes && typeof nodes === "object") {
-        console.log("[useWorkflowRunRealtime] Found nodes in metadata:", nodes);
+        console.log("[useWorkflowRunRealtime] Found nodes in metadata");
+        const nodeIds = Object.keys(nodes);
+        console.log(
+          `[useWorkflowRunRealtime] Processing ${nodeIds.length} nodes`,
+        );
+
         for (const [nodeId, nodeData] of Object.entries(nodes)) {
           if (typeof nodeData === "object" && nodeData !== null) {
             const node = nodeData as Record<string, unknown>;
@@ -176,5 +196,5 @@ export function useWorkflowRunRealtime({
       executionStore.finishRun(status as any);
       workflowEditorStore.setIsRunning(false, null);
     }
-  }, [run, triggerRunId, publicToken, executionStore, workflowEditorStore]);
+  }, [run, executionStore, workflowEditorStore]);
 }

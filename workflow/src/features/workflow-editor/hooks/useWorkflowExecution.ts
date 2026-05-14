@@ -69,6 +69,37 @@ export function useWorkflowExecution() {
     const currentNodes = useWorkflowEditorStore.getState().nodes;
     const currentEdges = useWorkflowEditorStore.getState().edges;
 
+    console.log("[useWorkflowExecution] runFrontendOrchestration started:", {
+      runId,
+      workflowId,
+      scope,
+      targetNodeIds,
+      nodesCount: currentNodes?.length ?? 0,
+      edgesCount: currentEdges?.length ?? 0,
+    });
+
+    if (!currentNodes || !Array.isArray(currentNodes)) {
+      console.error(
+        "[useWorkflowExecution] Invalid nodes in runFrontendOrchestration:",
+        {
+          nodesType: typeof currentNodes,
+          isArray: Array.isArray(currentNodes),
+        },
+      );
+      return;
+    }
+
+    if (!currentEdges || !Array.isArray(currentEdges)) {
+      console.error(
+        "[useWorkflowExecution] Invalid edges in runFrontendOrchestration:",
+        {
+          edgesType: typeof currentEdges,
+          isArray: Array.isArray(currentEdges),
+        },
+      );
+      return;
+    }
+
     const { dag: compiledDag, error } = compileDAG(currentNodes, currentEdges);
     if (!compiledDag || error) {
       console.error(`[NextFlow] ❌ DAG compile failed:`, error?.message);
@@ -76,18 +107,40 @@ export function useWorkflowExecution() {
     }
     const dag = compiledDag;
 
+    console.log("[useWorkflowExecution] DAG compiled successfully:", {
+      nodeCount: dag.nodes.size,
+      executionOrderLength: dag.executionOrder?.length ?? 0,
+    });
+
     let executionSet: Set<string>;
     if (scope === "full") {
       executionSet = new Set(currentNodes.map((n) => n.id));
-    } else if (targetNodeIds?.length) {
+      console.log("[useWorkflowExecution] Full scope - executing all nodes");
+    } else if (
+      targetNodeIds &&
+      Array.isArray(targetNodeIds) &&
+      targetNodeIds.length > 0
+    ) {
+      console.log(
+        `[useWorkflowExecution] Selected scope - computing subgraph for ${targetNodeIds.length} target nodes`,
+      );
       executionSet = computeExecutionSubgraph(targetNodeIds, dag);
+      console.log(
+        `[useWorkflowExecution] Subgraph computed - ${executionSet.size} nodes to execute`,
+      );
     } else {
       executionSet = new Set(currentNodes.map((n) => n.id));
+      console.log("[useWorkflowExecution] Default scope - executing all nodes");
     }
 
     const executionNodeIds = dag.executionOrder.filter((id) =>
       executionSet.has(id),
     );
+
+    console.log("[useWorkflowExecution] Execution order determined:", {
+      totalToExecute: executionNodeIds.length,
+      executionOrder: executionNodeIds,
+    });
 
     const outputRegistry: NodeOutputRegistry = new Map();
     const completed = new Set<string>();
@@ -95,20 +148,46 @@ export function useWorkflowExecution() {
 
     function isReady(nodeId: string): boolean {
       const compiled = dag.nodes.get(nodeId);
-      if (!compiled) return false;
-      return compiled.upstreamIds
-        .filter((id) => executionSet.has(id))
-        .every((id) => completed.has(id));
+      if (!compiled) {
+        console.warn(
+          `[useWorkflowExecution] Node ${nodeId} not found in compiled DAG`,
+        );
+        return false;
+      }
+      const upstreamIds = compiled.upstreamIds.filter((id) =>
+        executionSet.has(id),
+      );
+      const isReady = upstreamIds.every((id) => completed.has(id));
+      if (!isReady && upstreamIds.length > 0) {
+        console.log(
+          `[useWorkflowExecution] Node ${nodeId} not ready - waiting for: ${upstreamIds.filter((id) => !completed.has(id)).join(", ")}`,
+        );
+      }
+      return isReady;
     }
 
     async function executeOneNode(nodeId: string): Promise<void> {
       const node = currentNodes.find((n) => n.id === nodeId);
       if (!node) {
+        console.error(
+          `[useWorkflowExecution] Node ${nodeId} not found in currentNodes`,
+        );
         return;
       }
 
-      const compiled = dag.nodes.get(nodeId)!;
+      const compiled = dag.nodes.get(nodeId);
+      if (!compiled) {
+        console.error(
+          `[useWorkflowExecution] Node ${nodeId} not found in compiled DAG`,
+        );
+        return;
+      }
+
       const nodeType = node.type ?? "unknown";
+      console.log(
+        `[useWorkflowExecution] Executing node ${nodeId} (${nodeType})`,
+      );
+
       const inputs = resolveNodeInputs(
         nodeId,
         currentNodes,
@@ -116,24 +195,48 @@ export function useWorkflowExecution() {
         outputRegistry,
       );
 
+      console.log(`[useWorkflowExecution] Resolved inputs for ${nodeId}:`, {
+        inputKeys: Object.keys(inputs),
+      });
+
       useExecutionStore.getState().setNodeStatus(nodeId, "running");
       useExecutionStore.getState().recordNodeStart(nodeId, nodeType, inputs);
 
       const startTime = Date.now();
 
       try {
+        console.log(
+          `[useWorkflowExecution] Calling executeNode for ${nodeId} (${nodeType})`,
+        );
         const result = await executeNode(nodeType, inputs);
         const durationMs = Date.now() - startTime;
+
+        console.log(
+          `[useWorkflowExecution] Node ${nodeId} completed in ${durationMs}ms`,
+          {
+            hasOutput: !!result.output,
+            outputKeys: result.output ? Object.keys(result.output) : [],
+          },
+        );
 
         outputRegistry.set(nodeId, result.output);
 
         if (nodeType === "gemini" && result.output.response) {
+          console.log(
+            `[useWorkflowExecution] Updating node ${nodeId} with gemini response`,
+          );
           updateNodeData(nodeId, { response: result.output.response });
         } else if (nodeType === "crop-image" && result.output.outputImageUrl) {
+          console.log(
+            `[useWorkflowExecution] Updating node ${nodeId} with crop output`,
+          );
           updateNodeData(nodeId, {
             outputImageUrl: result.output.outputImageUrl,
           });
         } else if (nodeType === "response" && result.output.result) {
+          console.log(
+            `[useWorkflowExecution] Updating node ${nodeId} with response result`,
+          );
           updateNodeData(nodeId, { result: result.output.result });
         }
 
@@ -143,6 +246,9 @@ export function useWorkflowExecution() {
         completed.add(nodeId);
 
         // Persist to DB
+        console.log(
+          `[useWorkflowExecution] Persisting node ${nodeId} to database`,
+        );
         await fetch(`/api/workflows/${workflowId}/run/${runId}/nodes`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -155,7 +261,12 @@ export function useWorkflowExecution() {
             duration: durationMs,
             finishedAt: new Date().toISOString(),
           }),
-        }).catch(() => {});
+        }).catch((err) => {
+          console.error(
+            `[useWorkflowExecution] Failed to persist node ${nodeId}:`,
+            err,
+          );
+        });
       } catch (err) {
         const durationMs = Date.now() - startTime;
         const errorMsg =
@@ -178,7 +289,23 @@ export function useWorkflowExecution() {
       const toStart = [...pending].filter(
         (id) => !inFlight.has(id) && isReady(id),
       );
-      if (toStart.length === 0) return;
+
+      if (!Array.isArray(toStart)) {
+        console.error(
+          "[useWorkflowExecution] toStart is not an array:",
+          typeof toStart,
+        );
+        return;
+      }
+
+      if (toStart.length === 0) {
+        console.log("[useWorkflowExecution] No nodes ready to start");
+        return;
+      }
+
+      console.log(
+        `[useWorkflowExecution] Scheduling ${toStart.length} nodes: ${toStart.join(", ")}`,
+      );
 
       await Promise.all(
         toStart.map(async (nodeId) => {
@@ -200,6 +327,13 @@ export function useWorkflowExecution() {
           ? "failed"
           : "partial";
 
+    console.log("[useWorkflowExecution] Frontend orchestration completed:", {
+      finalStatus,
+      completed: completed.size,
+      failed: failed.size,
+      total: executionNodeIds.length,
+    });
+
     useExecutionStore.getState().finishRun(finalStatus);
     setIsRunning(false, null);
     isExecutingRef.current = false;
@@ -212,6 +346,7 @@ export function useWorkflowExecution() {
           ? "FAILED"
           : "PARTIAL";
 
+    console.log(`[useWorkflowExecution] Updating DB run status to ${dbStatus}`);
     await fetch(`/api/workflows/${workflowId}/run/${runId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -219,7 +354,12 @@ export function useWorkflowExecution() {
         status: dbStatus,
         finishedAt: new Date().toISOString(),
       }),
-    }).catch(() => {});
+    }).catch((err) => {
+      console.error(
+        "[useWorkflowExecution] Failed to update DB run status:",
+        err,
+      );
+    });
   }
 
   // ─── Main entry point ────────────────────────────────────────────────────────
@@ -229,6 +369,7 @@ export function useWorkflowExecution() {
       console.log("[useWorkflowExecution] runExecution called with:", {
         scope,
         targetNodeIds,
+        isAlreadyExecuting: isExecutingRef.current,
       });
 
       if (isExecutingRef.current) {
@@ -236,18 +377,36 @@ export function useWorkflowExecution() {
         return;
       }
 
-      const { workflowId, nodes, edges } = useWorkflowEditorStore.getState();
-      console.log("[useWorkflowExecution] Store state:", {
+      const storeState = useWorkflowEditorStore.getState();
+      const { workflowId, nodes, edges } = storeState;
+
+      console.log("[useWorkflowExecution] Store state retrieved:", {
         workflowId,
-        nodesCount: nodes?.length,
-        edgesCount: edges?.length,
+        nodesType: typeof nodes,
+        nodesIsArray: Array.isArray(nodes),
+        nodesCount: Array.isArray(nodes) ? nodes.length : "N/A",
+        edgesType: typeof edges,
+        edgesIsArray: Array.isArray(edges),
+        edgesCount: Array.isArray(edges) ? edges.length : "N/A",
       });
 
-      if (!workflowId || !nodes || !edges) {
-        console.error("[useWorkflowExecution] Missing required data:", {
-          workflowId,
-          nodes: !!nodes,
-          edges: !!edges,
+      if (!workflowId) {
+        console.error("[useWorkflowExecution] Missing workflowId");
+        return;
+      }
+
+      if (!nodes || !Array.isArray(nodes)) {
+        console.error("[useWorkflowExecution] Invalid nodes:", {
+          nodesType: typeof nodes,
+          isArray: Array.isArray(nodes),
+        });
+        return;
+      }
+
+      if (!edges || !Array.isArray(edges)) {
+        console.error("[useWorkflowExecution] Invalid edges:", {
+          edgesType: typeof edges,
+          isArray: Array.isArray(edges),
         });
         return;
       }
@@ -262,17 +421,24 @@ export function useWorkflowExecution() {
       console.log("[useWorkflowExecution] DAG compiled successfully");
 
       // Clean up removed edges from workflow store
-      if (dag.removedEdges.length > 0) {
-        console.log(
-          `[useWorkflowExecution] Cleaning up ${dag.removedEdges.length} removed edges`,
+      if (dag.removedEdges && Array.isArray(dag.removedEdges)) {
+        if (dag.removedEdges.length > 0) {
+          console.log(
+            `[useWorkflowExecution] Cleaning up ${dag.removedEdges.length} removed edges`,
+          );
+          const cleanedEdges = edges.filter(
+            (e) =>
+              !dag.removedEdges.some(
+                (re) => re.source === e.source && re.target === e.target,
+              ),
+          );
+          useWorkflowEditorStore.setState({ edges: cleanedEdges });
+        }
+      } else {
+        console.warn(
+          "[useWorkflowExecution] dag.removedEdges is not an array:",
+          typeof dag.removedEdges,
         );
-        const cleanedEdges = edges.filter(
-          (e) =>
-            !dag.removedEdges.some(
-              (re) => re.source === e.source && re.target === e.target,
-            ),
-        );
-        useWorkflowEditorStore.setState({ edges: cleanedEdges });
       }
 
       isExecutingRef.current = true;
@@ -287,10 +453,22 @@ export function useWorkflowExecution() {
       let executionSet: Set<string>;
       if (scope === "full") {
         executionSet = new Set(nodes.map((n) => n.id));
-      } else if (targetNodeIds?.length) {
+        console.log("[useWorkflowExecution] Full scope - all nodes");
+      } else if (
+        targetNodeIds &&
+        Array.isArray(targetNodeIds) &&
+        targetNodeIds.length > 0
+      ) {
+        console.log(
+          `[useWorkflowExecution] Selected scope - ${targetNodeIds.length} target nodes`,
+        );
         executionSet = computeExecutionSubgraph(targetNodeIds, dag);
+        console.log(
+          `[useWorkflowExecution] Subgraph computed - ${executionSet.size} nodes`,
+        );
       } else {
         executionSet = new Set(nodes.map((n) => n.id));
+        console.log("[useWorkflowExecution] Default scope - all nodes");
       }
 
       const executionNodeIds = dag.executionOrder.filter((id) =>
@@ -299,8 +477,9 @@ export function useWorkflowExecution() {
 
       console.log("[useWorkflowExecution] Execution plan:", {
         scope,
-        executionNodeIds,
+        executionNodeIds: executionNodeIds.length,
         totalNodes: nodes.length,
+        executionOrder: executionNodeIds,
       });
 
       // Initialize UI state
@@ -332,10 +511,12 @@ export function useWorkflowExecution() {
           distributed = data.distributed as boolean;
           newTriggerRunId = data.triggerRunId as string | null;
           newPublicToken = data.publicToken as string | null;
+
           console.log("[useWorkflowExecution] Run created successfully:", {
             runId,
             distributed,
             hasTriggerRunId: !!newTriggerRunId,
+            hasPublicToken: !!newPublicToken,
           });
         } else {
           const errText = await res.text().catch(() => "unknown");
@@ -361,10 +542,15 @@ export function useWorkflowExecution() {
           newTriggerRunId,
         );
         setTriggerRunId(newTriggerRunId);
+      } else {
+        console.log("[useWorkflowExecution] No Trigger.dev run ID returned");
       }
+
       if (newPublicToken) {
         console.log("[useWorkflowExecution] Setting public token");
         setPublicToken(newPublicToken);
+      } else {
+        console.log("[useWorkflowExecution] No public token returned");
       }
 
       exec().startRun(runId, scope, executionNodeIds);
