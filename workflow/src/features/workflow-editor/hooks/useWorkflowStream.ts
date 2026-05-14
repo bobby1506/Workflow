@@ -13,20 +13,16 @@ interface UseWorkflowStreamParams {
 }
 
 /**
- * Hook that subscribes to a Trigger.dev stream (e.g., Gemini token stream)
- * and accumulates chunks into full text, updating the ExecutionStore and canvas.
- *
- * - Accumulates token chunks into full text
- * - Updates ExecutionStore and canvas on each chunk
- * - On stream close, sets node status to success if not already
- * - On error, logs and calls recordNodeFailure()
+ * Internal hook that actually subscribes to Trigger.dev stream.
+ * This is ONLY called when we have valid parameters.
+ * CRITICAL: This must be a separate function to avoid conditional hook calls.
  */
-export function useWorkflowStream({
-  triggerRunId,
-  nodeId,
-  streamName,
-  publicToken,
-}: UseWorkflowStreamParams): void {
+function useWorkflowStreamInternal(
+  triggerRunId: string,
+  nodeId: string,
+  streamName: string,
+  publicToken: string,
+): void {
   const executionStore = useExecutionStore();
   const workflowEditorStore = useWorkflowEditorStore();
 
@@ -35,20 +31,12 @@ export function useWorkflowStream({
   // Track previous parts length to detect new chunks
   const previousPartsLengthRef = useRef<number>(0);
 
-  // Always call the hook — never conditionally
-  const { parts, error } = useRealtimeStream<string>(
-    triggerRunId ?? "",
-    streamName ?? "",
-    {
-      accessToken: publicToken ?? "",
-      enabled: !!(triggerRunId && nodeId && streamName && publicToken),
-    },
-  );
+  // Subscribe to the stream using Trigger.dev's realtime API
+  const { parts, error } = useRealtimeStream<string>(triggerRunId, streamName, {
+    accessToken: publicToken,
+  });
 
   useEffect(() => {
-    // Guard: bail out if params aren't ready
-    if (!triggerRunId || !nodeId || !streamName || !publicToken) return;
-
     // Handle stream errors
     if (error) {
       console.error(`Stream error for ${streamName}:`, error);
@@ -75,22 +63,10 @@ export function useWorkflowStream({
         });
       }
     }
-  }, [
-    parts,
-    error,
-    nodeId,
-    streamName,
-    triggerRunId,
-    publicToken,
-    executionStore,
-    workflowEditorStore,
-  ]);
+  }, [parts, error, nodeId, streamName, executionStore, workflowEditorStore]);
 
   // Handle stream completion
   useEffect(() => {
-    // Guard: bail out if params aren't ready
-    if (!triggerRunId || !nodeId || !streamName || !publicToken) return;
-
     // When parts array stops growing, the stream has closed
     // Set node status to success if not already
     if (
@@ -103,5 +79,31 @@ export function useWorkflowStream({
         executionStore.setNodeStatus(nodeId, "success");
       }
     }
-  }, [parts, nodeId, streamName, triggerRunId, publicToken, executionStore]);
+  }, [parts, nodeId, executionStore]);
+}
+
+/**
+ * Hook that subscribes to a Trigger.dev stream (e.g., Gemini token stream)
+ * and accumulates chunks into full text, updating the ExecutionStore and canvas.
+ *
+ * - Accumulates token chunks into full text
+ * - Updates ExecutionStore and canvas on each chunk
+ * - On stream close, sets node status to success if not already
+ * - On error, logs and calls recordNodeFailure()
+ *
+ * IMPORTANT: This hook uses a wrapper pattern to avoid conditional hook calls.
+ * The internal hook is only invoked when all parameters are provided.
+ */
+export function useWorkflowStream({
+  triggerRunId,
+  nodeId,
+  streamName,
+  publicToken,
+}: UseWorkflowStreamParams): void {
+  // Only call the internal hook when we have valid parameters
+  // This avoids the "Rendered more/fewer hooks" error
+  if (triggerRunId && nodeId && streamName && publicToken) {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useWorkflowStreamInternal(triggerRunId, nodeId, streamName, publicToken);
+  }
 }

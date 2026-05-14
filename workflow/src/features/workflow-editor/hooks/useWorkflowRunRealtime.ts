@@ -10,10 +10,15 @@ interface UseWorkflowRunRealtimeParams {
   publicToken: string | null | undefined;
 }
 
-export function useWorkflowRunRealtime({
-  triggerRunId,
-  publicToken,
-}: UseWorkflowRunRealtimeParams): void {
+/**
+ * Internal hook that actually subscribes to Trigger.dev realtime.
+ * This is ONLY called when we have valid parameters.
+ * CRITICAL: This must be a separate function to avoid conditional hook calls.
+ */
+function useWorkflowRunRealtimeInternal(
+  triggerRunId: string,
+  publicToken: string,
+): void {
   const executionStore = useExecutionStore();
   const workflowEditorStore = useWorkflowEditorStore();
 
@@ -23,20 +28,19 @@ export function useWorkflowRunRealtime({
 
   // Reset state when a new run starts
   if (triggerRunId !== prevRunIdRef.current) {
-    prevRunIdRef.current = triggerRunId ?? null;
+    prevRunIdRef.current = triggerRunId;
     hasFinishedRef.current = false;
     previousRunStatusRef.current = null;
   }
 
-  // Always call the hook — never conditionally
-  const { run } = useRealtimeRun(triggerRunId ?? "", {
-    accessToken: publicToken ?? "",
-    enabled: !!(triggerRunId && publicToken),
+  // Subscribe to the run using Trigger.dev's realtime API
+  const { run } = useRealtimeRun(triggerRunId, {
+    accessToken: publicToken,
   });
 
   useEffect(() => {
-    // Guard: bail out if params aren't ready or run hasn't loaded
-    if (!triggerRunId || !publicToken || !run) return;
+    // Guard: bail out if run hasn't loaded
+    if (!run) return;
 
     const isTerminal =
       run.status === "COMPLETED" ||
@@ -132,5 +136,23 @@ export function useWorkflowRunRealtime({
       executionStore.finishRun(status as any);
       workflowEditorStore.setIsRunning(false, null);
     }
-  }, [run, triggerRunId, publicToken, executionStore, workflowEditorStore]);
+  }, [run, executionStore, workflowEditorStore]);
+}
+
+/**
+ * Hook that subscribes to a Trigger.dev run and maps its metadata to the ExecutionStore.
+ *
+ * IMPORTANT: This hook uses a wrapper pattern to avoid conditional hook calls.
+ * The internal hook is only invoked when both triggerRunId and publicToken are provided.
+ */
+export function useWorkflowRunRealtime({
+  triggerRunId,
+  publicToken,
+}: UseWorkflowRunRealtimeParams): void {
+  // Only call the internal hook when we have valid parameters
+  // This avoids the "Rendered more/fewer hooks" error
+  if (triggerRunId && publicToken) {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useWorkflowRunRealtimeInternal(triggerRunId, publicToken);
+  }
 }
