@@ -11,24 +11,16 @@ interface UseWorkflowRunRealtimeParams {
 }
 
 /**
- * Hook that subscribes to a Trigger.dev run's realtime metadata and maps changes
- * to the ExecutionStore and WorkflowEditorStore.
- *
- * Maps metadata changes:
- * - nodes.<nodeId>.status → setNodeStatus()
- * - nodes.<nodeId>.output → updateNodeData()
- * - runStatus transitions → finishRun() + setIsRunning(false)
- *
- * Ignores updates after run reaches terminal state (COMPLETED/FAILED/CANCELED).
- * Only triggers cleanup on actual transitions, not on initial observation.
- *
- * IMPORTANT: This hook MUST be called unconditionally (React Rules of Hooks).
- * When parameters are invalid, we use a ternary to avoid calling useRealtimeRun.
+ * Internal hook that actually subscribes to Trigger.dev realtime updates.
+ * This hook MUST ONLY be called when we have valid parameters.
  */
-export function useWorkflowRunRealtime({
+function useWorkflowRunRealtimeInternal({
   triggerRunId,
   publicToken,
-}: UseWorkflowRunRealtimeParams): void {
+}: {
+  triggerRunId: string;
+  publicToken: string;
+}): void {
   const executionStore = useExecutionStore();
   const workflowEditorStore = useWorkflowEditorStore();
 
@@ -37,22 +29,15 @@ export function useWorkflowRunRealtime({
   // Track the previous runStatus to detect transitions
   const previousRunStatusRef = useRef<string | null>(null);
 
-  const hasValidParams = !!(triggerRunId && publicToken);
-
-  console.log("[useWorkflowRunRealtime] Hook called with:", {
+  console.log("[useWorkflowRunRealtime] Internal hook - subscribing to run:", {
     triggerRunId,
-    publicToken: publicToken ? "***" : null,
-    hasValidParams,
+    hasPublicToken: !!publicToken,
   });
 
-  // ✅ CRITICAL: Use a ternary to conditionally call useRealtimeRun
-  // This prevents calling the hook with invalid parameters
-  // while still complying with React's Rules of Hooks
-  const { run } = hasValidParams
-    ? useRealtimeRun(triggerRunId!, {
-        accessToken: publicToken!,
-      })
-    : { run: null };
+  // Subscribe to the run using Trigger.dev's realtime API
+  const { run } = useRealtimeRun(triggerRunId, {
+    accessToken: publicToken,
+  });
 
   console.log("[useWorkflowRunRealtime] useRealtimeRun returned:", {
     hasRun: !!run,
@@ -188,4 +173,35 @@ export function useWorkflowRunRealtime({
       workflowEditorStore.setIsRunning(false, null);
     }
   }, [run, executionStore, workflowEditorStore]);
+}
+
+/**
+ * Wrapper hook that conditionally calls the internal hook.
+ * This is the ONLY way to avoid calling useRealtimeRun when parameters are invalid
+ * while still complying with React's Rules of Hooks.
+ */
+export function useWorkflowRunRealtime({
+  triggerRunId,
+  publicToken,
+}: UseWorkflowRunRealtimeParams): void {
+  console.log("[useWorkflowRunRealtime] Wrapper called with:", {
+    triggerRunId,
+    publicToken: publicToken ? "***" : null,
+    hasValidParams: !!(triggerRunId && publicToken),
+  });
+
+  // ✅ CRITICAL: Only call the internal hook if we have BOTH parameters
+  // This prevents calling useRealtimeRun with invalid parameters
+  if (triggerRunId && publicToken) {
+    console.log("[useWorkflowRunRealtime] Calling internal hook");
+    useWorkflowRunRealtimeInternal({
+      triggerRunId,
+      publicToken,
+    });
+  } else {
+    console.log("[useWorkflowRunRealtime] Skipping - missing parameters:", {
+      triggerRunId: !!triggerRunId,
+      publicToken: !!publicToken,
+    });
+  }
 }
