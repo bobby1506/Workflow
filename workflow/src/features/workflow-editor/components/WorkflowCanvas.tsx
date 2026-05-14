@@ -111,6 +111,7 @@ function CanvasInner({
 
   // Inject execution status styles into nodes
   const styledNodes = useMemo(() => {
+    if (!nodes || !nodeStatuses) return nodes;
     return nodes.map((node) => {
       const status = nodeStatuses.get(node.id) ?? "idle";
       const statusStyle = nodeStatusStyle(status);
@@ -123,6 +124,9 @@ function CanvasInner({
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<WorkflowNode>[]) => {
+      // Guard against undefined changes
+      if (!changes || changes.length === 0) return;
+
       const filtered = changes.filter((c) =>
         c.type === "remove" ? !NON_DELETABLE_NODES.includes(c.id) : true,
       );
@@ -173,6 +177,9 @@ function CanvasInner({
 
   const connectionValidator = useCallback(
     (connection: Connection | WorkflowEdge) => {
+      // Guard against undefined nodes or edges
+      if (!nodes || !edges) return false;
+
       const conn: Connection = {
         source: connection.source ?? "",
         target: connection.target ?? "",
