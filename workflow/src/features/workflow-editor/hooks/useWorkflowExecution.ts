@@ -226,20 +226,46 @@ export function useWorkflowExecution() {
 
   const runExecution = useCallback(
     async (scope: "full" | "selected" | "single", targetNodeIds?: string[]) => {
-      if (isExecutingRef.current) return;
+      console.log("[useWorkflowExecution] runExecution called with:", {
+        scope,
+        targetNodeIds,
+      });
 
-      const { workflowId, nodes, edges } = useWorkflowEditorStore.getState();
-      if (!workflowId || !nodes || !edges) return;
-
-      // Validate DAG before starting
-      const { dag, error } = compileDAG(nodes, edges);
-      if (!dag || error) {
-        console.error("[Execution] DAG error:", error?.message);
+      if (isExecutingRef.current) {
+        console.log("[useWorkflowExecution] Already executing, skipping");
         return;
       }
 
+      const { workflowId, nodes, edges } = useWorkflowEditorStore.getState();
+      console.log("[useWorkflowExecution] Store state:", {
+        workflowId,
+        nodesCount: nodes?.length,
+        edgesCount: edges?.length,
+      });
+
+      if (!workflowId || !nodes || !edges) {
+        console.error("[useWorkflowExecution] Missing required data:", {
+          workflowId,
+          nodes: !!nodes,
+          edges: !!edges,
+        });
+        return;
+      }
+
+      // Validate DAG before starting
+      console.log("[useWorkflowExecution] Compiling DAG...");
+      const { dag, error } = compileDAG(nodes, edges);
+      if (!dag || error) {
+        console.error("[useWorkflowExecution] DAG compile failed:", error);
+        return;
+      }
+      console.log("[useWorkflowExecution] DAG compiled successfully");
+
       // Clean up removed edges from workflow store
       if (dag.removedEdges.length > 0) {
+        console.log(
+          `[useWorkflowExecution] Cleaning up ${dag.removedEdges.length} removed edges`,
+        );
         const cleanedEdges = edges.filter(
           (e) =>
             !dag.removedEdges.some(
@@ -271,6 +297,12 @@ export function useWorkflowExecution() {
         executionSet.has(id),
       );
 
+      console.log("[useWorkflowExecution] Execution plan:", {
+        scope,
+        executionNodeIds,
+        totalNodes: nodes.length,
+      });
+
       // Initialize UI state
       exec().resetNodeStatuses();
       setIsRunning(true, scope);
@@ -282,6 +314,7 @@ export function useWorkflowExecution() {
       let newPublicToken: string | null = null;
 
       try {
+        console.log("[useWorkflowExecution] Creating run via API...");
         const res = await fetch(`/api/workflows/${workflowId}/run`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -299,27 +332,38 @@ export function useWorkflowExecution() {
           distributed = data.distributed as boolean;
           newTriggerRunId = data.triggerRunId as string | null;
           newPublicToken = data.publicToken as string | null;
+          console.log("[useWorkflowExecution] Run created successfully:", {
+            runId,
+            distributed,
+            hasTriggerRunId: !!newTriggerRunId,
+          });
         } else {
           const errText = await res.text().catch(() => "unknown");
           console.error(
-            `[NextFlow] ❌ Failed to create run:`,
+            `[useWorkflowExecution] Failed to create run:`,
             res.status,
             errText,
           );
         }
       } catch (e) {
-        console.error(`[NextFlow] ❌ Exception creating run:`, e);
+        console.error(`[useWorkflowExecution] Exception creating run:`, e);
       }
 
       if (!runId) {
         runId = `local-${Date.now()}`;
+        console.log("[useWorkflowExecution] Using local run ID:", runId);
       }
 
       // Store Trigger.dev run ID and token for realtime subscription
       if (newTriggerRunId) {
+        console.log(
+          "[useWorkflowExecution] Setting Trigger.dev run ID:",
+          newTriggerRunId,
+        );
         setTriggerRunId(newTriggerRunId);
       }
       if (newPublicToken) {
+        console.log("[useWorkflowExecution] Setting public token");
         setPublicToken(newPublicToken);
       }
 
@@ -328,7 +372,14 @@ export function useWorkflowExecution() {
       // If distributed mode is enabled, realtime hooks will handle updates
       // Otherwise, frontend orchestrates with mock executors
       if (!distributed) {
+        console.log(
+          "[useWorkflowExecution] Running frontend orchestration (dev mode)",
+        );
         await runFrontendOrchestration(runId, workflowId, scope, targetNodeIds);
+      } else {
+        console.log(
+          "[useWorkflowExecution] Distributed mode enabled, waiting for realtime updates",
+        );
       }
     },
     [updateNodeData, setIsRunning, setTriggerRunId, setPublicToken],
