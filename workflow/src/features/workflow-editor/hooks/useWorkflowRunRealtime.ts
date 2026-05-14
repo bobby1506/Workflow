@@ -46,8 +46,48 @@ export function useWorkflowRunRealtime({
     if (hasFinishedRef.current && isTerminal) return;
 
     if (run.metadata) {
-      const metadata = run.metadata as Record<string, unknown>;
+      // Parse metadata if it's a JSON string (Trigger.dev sends it as string)
+      let rawMetadata = run.metadata;
+      if (typeof rawMetadata === "string") {
+        try {
+          rawMetadata = JSON.parse(rawMetadata);
+        } catch (error) {
+          console.error(
+            "[useWorkflowRunRealtime] Failed to parse metadata JSON:",
+            error,
+          );
+          return;
+        }
+      }
 
+      const flatMetadata = rawMetadata as Record<string, unknown>;
+
+      // Restructure flattened keys (e.g., "nodes.nodeId.status" → nested object)
+      const metadata: Record<string, any> = {};
+
+      for (const [key, value] of Object.entries(flatMetadata)) {
+        if (key.startsWith("nodes.")) {
+          // Extract nodeId and property from "nodes.nodeId.property"
+          const parts = key.split(".");
+          if (parts.length >= 3) {
+            const nodeId = parts[1];
+            const property = parts.slice(2).join("."); // Handle nested properties
+
+            if (!metadata.nodes) {
+              metadata.nodes = {};
+            }
+            if (!metadata.nodes[nodeId]) {
+              metadata.nodes[nodeId] = {};
+            }
+            metadata.nodes[nodeId][property] = value;
+          }
+        } else {
+          // Top-level properties (runStatus, completedNodeCount, etc.)
+          metadata[key] = value;
+        }
+      }
+
+      // Process node status updates
       const nodes = metadata.nodes as Record<string, unknown> | undefined;
       if (nodes && typeof nodes === "object") {
         for (const [nodeId, nodeData] of Object.entries(nodes)) {

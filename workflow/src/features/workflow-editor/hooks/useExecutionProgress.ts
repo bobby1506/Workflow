@@ -37,7 +37,25 @@ function useExecutionProgressInternal(
       };
     }
 
-    const metadata = run.metadata as Record<string, unknown>;
+    // Parse metadata if it's a JSON string (Trigger.dev sends it as string)
+    let rawMetadata = run.metadata;
+    if (typeof rawMetadata === "string") {
+      try {
+        rawMetadata = JSON.parse(rawMetadata);
+      } catch (error) {
+        console.error(
+          "[useExecutionProgress] Failed to parse metadata JSON:",
+          error,
+        );
+        return {
+          completedNodeCount: 0,
+          totalNodeCount: 0,
+          percentage: 0,
+        };
+      }
+    }
+
+    const metadata = rawMetadata as Record<string, unknown>;
     const completedNodeCount = (metadata.completedNodeCount as number) || 0;
     const totalNodeCount = (metadata.totalNodeCount as number) || 0;
 
