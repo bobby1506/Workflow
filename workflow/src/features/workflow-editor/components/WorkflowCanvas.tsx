@@ -111,24 +111,12 @@ function CanvasInner({
 
   // Inject execution status styles into nodes
   const styledNodes = useMemo(() => {
-    console.log("[WorkflowCanvas] styledNodes memo:", {
-      nodesType: typeof nodes,
-      nodesIsArray: Array.isArray(nodes),
-      nodesCount: Array.isArray(nodes) ? nodes.length : "N/A",
-      nodeStatusesType: typeof nodeStatuses,
-    });
-
     // ✅ Return empty array if nodes is undefined/not an array
     if (!nodes || !Array.isArray(nodes)) {
-      console.warn("[WorkflowCanvas] Invalid nodes in styledNodes memo:", {
-        nodesType: typeof nodes,
-        isArray: Array.isArray(nodes),
-      });
       return [];
     }
 
     if (!nodeStatuses) {
-      console.warn("[WorkflowCanvas] nodeStatuses is undefined");
       return nodes;
     }
 
@@ -144,23 +132,8 @@ function CanvasInner({
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<WorkflowNode>[]) => {
-      console.log("[WorkflowCanvas] handleNodesChange called:", {
-        changesType: typeof changes,
-        changesIsArray: Array.isArray(changes),
-        changesCount: Array.isArray(changes) ? changes.length : "N/A",
-      });
-
       // Guard against undefined or non-array changes
-      if (!changes || !Array.isArray(changes)) {
-        console.warn("[WorkflowCanvas] Invalid changes in handleNodesChange:", {
-          changesType: typeof changes,
-          isArray: Array.isArray(changes),
-        });
-        return;
-      }
-
-      if (changes.length === 0) {
-        console.log("[WorkflowCanvas] No changes to process");
+      if (!changes || !Array.isArray(changes) || changes.length === 0) {
         return;
       }
 
@@ -168,18 +141,10 @@ function CanvasInner({
         c.type === "remove" ? !NON_DELETABLE_NODES.includes(c.id) : true,
       );
 
-      console.log("[WorkflowCanvas] Filtered changes:", {
-        originalCount: changes.length,
-        filteredCount: filtered.length,
-      });
-
       if (filtered.length > 0) {
         // Push history snapshot before remove operations
         const hasRemove = filtered.some((c) => c.type === "remove");
         if (hasRemove) {
-          console.log(
-            "[WorkflowCanvas] Pushing history snapshot before remove",
-          );
           useHistoryStore.getState().pushSnapshot({
             nodes: useWorkflowEditorStore.getState().nodes,
             edges: useWorkflowEditorStore.getState().edges,
@@ -223,29 +188,8 @@ function CanvasInner({
 
   const connectionValidator = useCallback(
     (connection: Connection | WorkflowEdge) => {
-      console.log("[WorkflowCanvas] connectionValidator called:", {
-        nodesType: typeof nodes,
-        nodesIsArray: Array.isArray(nodes),
-        edgesType: typeof edges,
-        edgesIsArray: Array.isArray(edges),
-        connectionSource: connection.source,
-        connectionTarget: connection.target,
-      });
-
       // Guard against undefined nodes or edges
-      if (!nodes || !Array.isArray(nodes)) {
-        console.warn("[WorkflowCanvas] Invalid nodes in connectionValidator:", {
-          nodesType: typeof nodes,
-          isArray: Array.isArray(nodes),
-        });
-        return false;
-      }
-
-      if (!edges || !Array.isArray(edges)) {
-        console.warn("[WorkflowCanvas] Invalid edges in connectionValidator:", {
-          edgesType: typeof edges,
-          isArray: Array.isArray(edges),
-        });
+      if (!nodes || !Array.isArray(nodes) || !edges || !Array.isArray(edges)) {
         return false;
       }
 
@@ -256,10 +200,7 @@ function CanvasInner({
         targetHandle: connection.targetHandle ?? null,
       };
 
-      console.log("[WorkflowCanvas] Validating connection:", conn);
-      const isValid = isValidConnection(conn, nodes, edges);
-      console.log("[WorkflowCanvas] Connection validation result:", isValid);
-      return isValid;
+      return isValidConnection(conn, nodes, edges);
     },
     [nodes, edges],
   );
