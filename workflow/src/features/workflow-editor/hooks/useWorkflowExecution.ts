@@ -45,7 +45,8 @@ export function useWorkflowExecution() {
   // Subscribe to Gemini streams for the first Gemini node found.
   // IMPORTANT: hooks must be called unconditionally — pass null when no Gemini
   // node exists; useWorkflowStream handles null params with an early return.
-  const firstGeminiNode = nodes.find((node) => node.type === "gemini");
+  // const firstGeminiNode = nodes.find((node) => node.type === "gemini");
+  const firstGeminiNode = (nodes ?? []).find((node) => node.type === "gemini");
   const geminiNodeData = firstGeminiNode?.data as
     | Record<string, unknown>
     | undefined;
