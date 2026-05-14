@@ -38,6 +38,7 @@ const nextConfig: NextConfig = {
     // Use process.cwd() so the root is the app folder when running inside workflow/
     root: process.cwd(),
   },
+  productionBrowserSourceMaps: true,
 };
 
 export default nextConfig;
