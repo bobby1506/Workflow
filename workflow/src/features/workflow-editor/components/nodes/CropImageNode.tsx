@@ -325,7 +325,7 @@ export function CropImageNode({
 
   // Get the actual upstream image URL when connected
   const connectedImageUrl = (() => {
-    if (!isImageConnected) return null;
+    if (!isImageConnected || !nodes) return null;
     const edge = edges.find(
       (e) => e.target === id && e.targetHandle === "input-image",
     );
@@ -351,6 +351,7 @@ export function CropImageNode({
   // ─── + button on Input Image: add image field to Request-Inputs and connect ─
 
   function handleConnectImageToInput() {
+    if (!nodes) return;
     const inputNode = nodes.find((n) => n.id === "request-inputs");
     if (!inputNode) return;
 
@@ -401,6 +402,7 @@ export function CropImageNode({
     paramHandleId: string,
     paramLabel: string,
   ) {
+    if (!nodes) return;
     const inputNode = nodes.find((n) => n.id === "request-inputs");
     if (!inputNode) return;
 
@@ -446,6 +448,7 @@ export function CropImageNode({
   // ─── Duplicate node ───────────────────────────────────────────────────────
 
   function handleDuplicate(withEdges = false) {
+    if (!nodes) return;
     const newId = nanoid(8);
     const currentNode = nodes.find((n) => n.id === id);
     if (!currentNode) return;
@@ -479,6 +482,7 @@ export function CropImageNode({
   }
 
   function handleDelete() {
+    if (!nodes) return;
     setNodes(nodes.filter((n) => n.id !== id) as typeof nodes);
   }
 

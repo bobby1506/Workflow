@@ -547,6 +547,7 @@ export function RequestInputsNode({
 
   const updateFields = useCallback(
     (updater: (fields: InputField[]) => InputField[]) => {
+      if (!nodes) return;
       setNodes(
         nodes.map((n) => {
           if (n.id !== id) return n;

@@ -633,6 +633,7 @@ export function GeminiNode({ id, data, selected }: NodeProps<GeminiNodeType>) {
 
   // Resolve the current value flowing into a connected handle from upstream node data
   function getConnectedValue(handleId: string): string | undefined {
+    if (!nodes) return undefined;
     const edge = edges.find(
       (e) => e.target === id && e.targetHandle === handleId,
     );
@@ -654,6 +655,7 @@ export function GeminiNode({ id, data, selected }: NodeProps<GeminiNodeType>) {
   }
 
   function handleConnectPromptToInput() {
+    if (!nodes) return;
     const inputNode = nodes.find((n) => n.id === "request-inputs");
     if (!inputNode) return;
     const currentFields = (inputNode.data as any).fields ?? [];
@@ -694,6 +696,7 @@ export function GeminiNode({ id, data, selected }: NodeProps<GeminiNodeType>) {
   }
 
   function handleConnectImageToInput() {
+    if (!nodes) return;
     const inputNode = nodes.find((n) => n.id === "request-inputs");
     if (!inputNode) return;
     const currentFields = (inputNode.data as any).fields ?? [];
@@ -735,6 +738,7 @@ export function GeminiNode({ id, data, selected }: NodeProps<GeminiNodeType>) {
   }
 
   function handleDuplicate(withEdges = false) {
+    if (!nodes) return;
     const newId = nanoid(8);
     const currentNode = nodes.find((n) => n.id === id);
     if (!currentNode) return;
@@ -766,6 +770,7 @@ export function GeminiNode({ id, data, selected }: NodeProps<GeminiNodeType>) {
   }
 
   function handleDelete() {
+    if (!nodes) return;
     setNodes(nodes.filter((n) => n.id !== id) as typeof nodes);
   }
 
