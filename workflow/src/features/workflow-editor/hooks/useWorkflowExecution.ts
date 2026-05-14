@@ -229,7 +229,7 @@ export function useWorkflowExecution() {
       if (isExecutingRef.current) return;
 
       const { workflowId, nodes, edges } = useWorkflowEditorStore.getState();
-      if (!workflowId) return;
+      if (!workflowId || !nodes || !edges) return;
 
       // Validate DAG before starting
       const { dag, error } = compileDAG(nodes, edges);

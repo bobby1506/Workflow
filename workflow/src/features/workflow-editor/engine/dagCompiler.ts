@@ -95,7 +95,7 @@ export function compileDAG(
   nodes: WorkflowNode[],
   edges: WorkflowEdge[],
 ): { dag: CompiledDAG | null; error: DAGValidationError | null } {
-  if (nodes.length === 0) {
+  if (!nodes || nodes.length === 0) {
     return {
       dag: null,
       error: { type: "empty", message: "Workflow has no nodes" },
