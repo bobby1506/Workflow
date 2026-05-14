@@ -52,19 +52,5 @@ export function useRunHistory(workflowId: string) {
     fetchRuns().finally(() => setLoading(false));
   }, [fetchRuns]);
 
-  // Poll while any run is RUNNING — but stop after 10 minutes (stale run guard)
-  useEffect(() => {
-    const hasActiveRun = runs.some((r) => {
-      if (r.status !== "RUNNING") return false;
-      // Treat runs older than 10 minutes as stale — stop polling
-      const age = Date.now() - new Date(r.startedAt).getTime();
-      return age < 10 * 60 * 1000;
-    });
-    if (!hasActiveRun) return;
-
-    const interval = setInterval(fetchRuns, 3000);
-    return () => clearInterval(interval);
-  }, [runs, fetchRuns]);
-
   return { runs, loading, refetch: fetchRuns };
 }

@@ -141,6 +141,9 @@ export interface WorkflowEditorState {
   // Execution state
   isRunning: boolean;
   runScope: "full" | "selected" | "single" | null;
+  // Trigger.dev realtime state
+  triggerRunId: string | null;
+  publicToken: string | null;
 }
 
 // ─── Node picker item ─────────────────────────────────────────────────────────

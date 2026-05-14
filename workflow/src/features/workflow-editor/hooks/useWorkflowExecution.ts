@@ -3,6 +3,8 @@
 import { useCallback, useRef } from "react";
 import { useWorkflowEditorStore } from "../store/workflowEditorStore";
 import { useExecutionStore } from "../store/executionStore";
+import { useWorkflowRunRealtime } from "./useWorkflowRunRealtime";
+import { useWorkflowStream } from "./useWorkflowStream";
 import { compileDAG, computeExecutionSubgraph } from "../engine/dagCompiler";
 import { resolveNodeInputs } from "../engine/inputResolver";
 import { executeNode } from "../engine/mockExecutors";
@@ -11,7 +13,7 @@ import type { NodeOutputRegistry } from "../engine/inputResolver";
 // ─── Execution orchestrator ───────────────────────────────────────────────────
 // Architecture:
 // 1. POST /api/workflows/[id]/run → creates DB Run, dispatches Trigger.dev task
-// 2. If Trigger.dev is configured → backend orchestrates, frontend polls for updates
+// 2. If Trigger.dev is configured → backend orchestrates, frontend subscribes via realtime hooks
 // 3. If not configured (dev mode) → frontend orchestrates with mock executors
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -26,75 +28,35 @@ function editor() {
 export function useWorkflowExecution() {
   const updateNodeData = useWorkflowEditorStore((s) => s.updateNodeData);
   const setIsRunning = useWorkflowEditorStore((s) => s.setIsRunning);
+  const setTriggerRunId = useWorkflowEditorStore((s) => s.setTriggerRunId);
+  const setPublicToken = useWorkflowEditorStore((s) => s.setPublicToken);
+  const triggerRunId = useWorkflowEditorStore((s) => s.triggerRunId);
+  const publicToken = useWorkflowEditorStore((s) => s.publicToken);
+  const nodes = useWorkflowEditorStore((s) => s.nodes);
 
   const isExecutingRef = useRef(false);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ─── Poll DB for live updates (used when Trigger.dev is active) ─────────────
+  // Subscribe to realtime updates when triggerRunId and publicToken are available
+  useWorkflowRunRealtime({
+    triggerRunId,
+    publicToken,
+  });
 
-  function startPolling(runId: string, workflowId: string) {
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+  // Subscribe to Gemini streams for the first Gemini node found.
+  // IMPORTANT: hooks must be called unconditionally — pass null when no Gemini
+  // node exists; useWorkflowStream handles null params with an early return.
+  const firstGeminiNode = nodes.find((node) => node.type === "gemini");
+  const geminiNodeData = firstGeminiNode?.data as
+    | Record<string, unknown>
+    | undefined;
+  const geminiStreamName = (geminiNodeData?.streamName as string) ?? null;
 
-    pollIntervalRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/workflows/${workflowId}/run/${runId}`);
-        if (!res.ok) return;
-
-        const run = await res.json();
-
-        // Update node statuses from DB
-        for (const nodeRun of run.nodeRuns ?? []) {
-          const statusMap: Record<
-            string,
-            "queued" | "running" | "success" | "failed" | "idle"
-          > = {
-            PENDING: "queued",
-            RUNNING: "running",
-            SUCCESS: "success",
-            FAILED: "failed",
-          };
-          const status = statusMap[nodeRun.status] ?? "idle";
-          useExecutionStore.getState().setNodeStatus(nodeRun.nodeId, status);
-
-          // Update canvas node data with outputs
-          if (nodeRun.status === "SUCCESS" && nodeRun.output) {
-            const output = nodeRun.output as Record<string, unknown>;
-            if (nodeRun.nodeType === "gemini" && output.response) {
-              updateNodeData(nodeRun.nodeId, { response: output.response });
-            } else if (
-              nodeRun.nodeType === "crop-image" &&
-              output.outputImageUrl
-            ) {
-              updateNodeData(nodeRun.nodeId, {
-                outputImageUrl: output.outputImageUrl,
-              });
-            } else if (nodeRun.nodeType === "response" && output.result) {
-              updateNodeData(nodeRun.nodeId, { result: output.result });
-            }
-          }
-        }
-
-        // Check if run is complete
-        if (["SUCCESS", "FAILED", "PARTIAL"].includes(run.status)) {
-          clearInterval(pollIntervalRef.current!);
-          pollIntervalRef.current = null;
-
-          const statusMap: Record<string, "success" | "failed" | "partial"> = {
-            SUCCESS: "success",
-            FAILED: "failed",
-            PARTIAL: "partial",
-          };
-          useExecutionStore
-            .getState()
-            .finishRun(statusMap[run.status] ?? "failed");
-          setIsRunning(false, null);
-          isExecutingRef.current = false;
-        }
-      } catch {
-        // Polling errors are non-critical
-      }
-    }, 1500); // Poll every 1.5 seconds
-  }
+  useWorkflowStream({
+    triggerRunId,
+    nodeId: firstGeminiNode?.id ?? null,
+    streamName: geminiStreamName,
+    publicToken,
+  });
 
   // ─── Frontend fallback orchestrator (dev mode / no Trigger.dev) ─────────────
 
@@ -316,6 +278,8 @@ export function useWorkflowExecution() {
       // POST to backend — creates DB run and dispatches Trigger.dev task
       let runId: string | null = null;
       let distributed = false;
+      let newTriggerRunId: string | null = null;
+      let newPublicToken: string | null = null;
 
       try {
         const res = await fetch(`/api/workflows/${workflowId}/run`, {
@@ -333,6 +297,8 @@ export function useWorkflowExecution() {
           const data = await res.json();
           runId = data.runId as string;
           distributed = data.distributed as boolean;
+          newTriggerRunId = data.triggerRunId as string | null;
+          newPublicToken = data.publicToken as string | null;
         } else {
           const errText = await res.text().catch(() => "unknown");
           console.error(
@@ -349,17 +315,23 @@ export function useWorkflowExecution() {
         runId = `local-${Date.now()}`;
       }
 
+      // Store Trigger.dev run ID and token for realtime subscription
+      if (newTriggerRunId) {
+        setTriggerRunId(newTriggerRunId);
+      }
+      if (newPublicToken) {
+        setPublicToken(newPublicToken);
+      }
+
       exec().startRun(runId, scope, executionNodeIds);
 
-      if (distributed && runId) {
-        // Backend is orchestrating via Trigger.dev — poll for updates
-        startPolling(runId, workflowId);
-      } else {
-        // Dev mode — frontend orchestrates with mock executors
+      // If distributed mode is enabled, realtime hooks will handle updates
+      // Otherwise, frontend orchestrates with mock executors
+      if (!distributed) {
         await runFrontendOrchestration(runId, workflowId, scope, targetNodeIds);
       }
     },
-    [updateNodeData, setIsRunning],
+    [updateNodeData, setIsRunning, setTriggerRunId, setPublicToken],
   );
 
   return {

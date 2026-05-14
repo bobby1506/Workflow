@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import type { CropParams, CropResult } from "../types";
+import { uploadCroppedImageToTransloadit } from "../transloadit/uploadService";
 
 
 /**
@@ -28,8 +29,8 @@ async function downloadImage(url: string, destPath: string): Promise<void> {
 
 /**
  * Crops an image using Sharp with percentage-based parameters.
- * Returns the cropped image as a base64 data URL.
- * Transloadit is NOT used here — base64 works directly with Gemini Vision API.
+ * Uploads the result to Transloadit CDN and returns the CDN URL.
+ * Falls back to a base64 data URL if Transloadit is not configured or fails.
  */
 export async function cropImageWithFFmpeg(
   imageUrl: string,
@@ -71,12 +72,16 @@ export async function cropImageWithFFmpeg(
       .jpeg()
       .toFile(outputPath);
 
-    // Read cropped file and return as base64 data URL
-    // Base64 works directly with Gemini Vision API — no CDN upload needed
+    // Upload cropped image to Transloadit CDN
+    // Throws if Transloadit is not configured or upload fails
     const outputBuffer = fs.readFileSync(outputPath);
-    const base64 = outputBuffer.toString("base64");
-    const outputUrl = `data:image/jpeg;base64,${base64}`;
     const size = outputBuffer.length;
+
+    const outputUrl = await uploadCroppedImageToTransloadit(
+      outputBuffer,
+      `cropped_${ts}.jpg`,
+      "image/jpeg",
+    );
 
     return {
       outputUrl,

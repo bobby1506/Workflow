@@ -38,7 +38,7 @@ const SAFETY_SETTINGS = [
  */
 export async function executeGeminiStreaming(
   payload: AIExecutionPayload,
-  onChunk: (chunk: string, accumulated: string) => Promise<void>,
+  onChunk: (chunk: string) => Promise<void>,
 ): Promise<AIExecutionResult> {
   if (!payload.prompt) throw new Error("Prompt is required");
 
@@ -87,7 +87,7 @@ export async function executeGeminiStreaming(
     const text = chunk.text();
     if (text) {
       accumulated += text;
-      await onChunk(text, accumulated);
+      await onChunk(text);
     }
   }
 

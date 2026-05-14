@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
 import { RunStatus } from "@/generated/prisma/client";
-import { executionEmitter } from "@/lib/realtime/emitters/executionEmitter";
 
 interface RouteContext {
   params: Promise<{ id: string; runId: string }>;
@@ -54,14 +53,6 @@ export async function POST(_request: Request, { params }: RouteContext) {
       where: { runId, status: { in: ["PENDING", "RUNNING"] } },
       data: { status: "FAILED", error: "Cancelled by user", finishedAt },
     });
-
-    // Emit SSE cancellation event
-    executionEmitter.workflowFailed(
-      workflowId,
-      runId,
-      "Cancelled by user",
-      duration,
-    );
 
     return NextResponse.json({ ok: true, runId });
   } catch (err) {

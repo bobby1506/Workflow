@@ -1,4 +1,4 @@
-import { task, logger } from "@trigger.dev/sdk/v3";
+import { task, logger, streams } from "@trigger.dev/sdk/v3";
 import type { NodeTaskPayload, NodeTaskResult } from "../types";
 import { buildGeminiPayload } from "../../lib/ai/payloads/geminiPayloadBuilder";
 import { executeGeminiStreaming } from "../../lib/ai/providers/geminiStreamingProvider";
@@ -11,7 +11,7 @@ export const geminiTask = task({
   maxDuration: 120,
 
   run: async (payload: NodeTaskPayload): Promise<NodeTaskResult> => {
-    const { runId, workflowId, nodeId, inputs, callbackBaseUrl } = payload;
+    const { runId, workflowId, nodeId, inputs } = payload;
 
     logger.info("Gemini task started", {
       runId,
@@ -22,16 +22,13 @@ export const geminiTask = task({
         Array.isArray(inputs.images) && (inputs.images as unknown[]).length > 0,
     });
 
-    await notifyNodeStatus(
-      callbackBaseUrl,
-      runId,
-      nodeId,
-      workflowId,
-      "RUNNING",
-      inputs,
-    );
-
     const startTime = Date.now();
+    const streamName = `gemini-response-${nodeId}`;
+
+    // Define the stream for this node
+    const stream = streams.define<string>({
+      id: streamName,
+    });
 
     try {
       const prompt = inputs.prompt as string | undefined;
@@ -51,20 +48,29 @@ export const geminiTask = task({
         imageCount: aiPayload.images?.length ?? 0,
       });
 
-      // Stream tokens — emit chunk events for live UI updates
-      const result = await executeGeminiStreaming(
-        aiPayload,
-        async (chunk, accumulated) => {
-          await notifyStreamChunk(
-            callbackBaseUrl,
-            runId,
-            nodeId,
-            workflowId,
-            chunk,
-            accumulated,
+      // Stream tokens to Trigger.dev stream using writer
+      let geminiResult: any = null;
+
+      const { waitUntilComplete } = stream.writer({
+        execute: async ({ write }) => {
+          geminiResult = await executeGeminiStreaming(
+            aiPayload,
+            async (chunk) => {
+              // Write each token chunk to the stream
+              write(chunk);
+            },
           );
         },
-      );
+      });
+
+      // Wait for all chunks to be written
+      await waitUntilComplete();
+
+      if (!geminiResult) {
+        throw new Error("Gemini streaming failed: no result returned");
+      }
+
+      const result = geminiResult;
 
       const output: Record<string, unknown> = {
         response: result.response,
@@ -82,36 +88,12 @@ export const geminiTask = task({
         outputTokens: result.outputTokens,
       });
 
-      await notifyNodeStatus(
-        callbackBaseUrl,
-        runId,
-        nodeId,
-        workflowId,
-        "SUCCESS",
-        inputs,
-        output,
-        undefined,
-        actualDuration,
-      );
-
       return { nodeId, output, durationMs: actualDuration };
     } catch (err) {
       const actualDuration = Date.now() - startTime;
       const errorMsg = classifyError(err);
 
       logger.error("Gemini task failed", { runId, nodeId, error: errorMsg });
-
-      await notifyNodeStatus(
-        callbackBaseUrl,
-        runId,
-        nodeId,
-        workflowId,
-        "FAILED",
-        inputs,
-        {},
-        errorMsg,
-        actualDuration,
-      );
 
       throw new Error(errorMsg);
     }
@@ -129,114 +111,4 @@ function classifyError(err: unknown): string {
   if (msg.includes("Prompt is required"))
     return "Prompt is required but was empty";
   return msg;
-}
-
-async function notifyNodeStatus(
-  baseUrl: string,
-  runId: string,
-  nodeId: string,
-  workflowId: string,
-  status: "RUNNING" | "SUCCESS" | "FAILED",
-  input: Record<string, unknown>,
-  output?: Record<string, unknown>,
-  error?: string,
-  durationMs?: number,
-): Promise<void> {
-  try {
-    const callbackUrl = `${baseUrl}/api/internal/node-event`;
-    const secret = process.env.INTERNAL_API_SECRET;
-
-    logger.info("Sending callback", {
-      nodeId,
-      status,
-      callbackUrl,
-      hasSecret: !!secret,
-      secretLength: secret?.length,
-    });
-
-    const response = await fetch(callbackUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-internal-secret": secret ?? "",
-      },
-      body: JSON.stringify({
-        runId,
-        nodeId,
-        workflowId,
-        status,
-        input,
-        output,
-        error,
-        durationMs,
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      logger.error("Callback failed", {
-        nodeId,
-        status,
-        statusCode: response.status,
-        statusText: response.statusText,
-        responseBody: text.substring(0, 500),
-        callbackUrl,
-      });
-      throw new Error(
-        `Callback failed: ${response.status} ${response.statusText} - ${text}`,
-      );
-    }
-
-    logger.info("Callback successful", { nodeId, status });
-  } catch (err) {
-    logger.error("Failed to notify node status", {
-      nodeId,
-      status,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    throw err;
-  }
-}
-
-async function notifyStreamChunk(
-  baseUrl: string,
-  runId: string,
-  nodeId: string,
-  workflowId: string,
-  chunk: string,
-  accumulated: string,
-): Promise<void> {
-  try {
-    const callbackUrl = `${baseUrl}/api/internal/node-event`;
-    const secret = process.env.INTERNAL_API_SECRET;
-
-    const response = await fetch(callbackUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-internal-secret": secret ?? "",
-      },
-      body: JSON.stringify({
-        runId,
-        nodeId,
-        workflowId,
-        status: "STREAMING",
-        chunk,
-        partialResponse: accumulated,
-      }),
-    });
-
-    if (!response.ok) {
-      logger.warn("Stream chunk callback failed", {
-        nodeId,
-        statusCode: response.status,
-        statusText: response.statusText,
-      });
-    }
-  } catch (err) {
-    logger.warn("Stream chunk send error (non-critical)", {
-      nodeId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
 }

@@ -1,5 +1,5 @@
 export { cropImageWithFFmpeg } from "./ffmpeg/cropProcessor";
-export { uploadToTransloadit } from "./transloadit/uploadService";
+export { uploadToTransloadit, uploadCroppedImageToTransloadit } from "./transloadit/uploadService";
 export { validateImageFile, validateImageUrl } from "./utils/validation";
 export type {
   MediaAsset,

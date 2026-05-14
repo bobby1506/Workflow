@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { RunStatus, RunScope } from "@/generated/prisma/client";
 import { tasks } from "@trigger.dev/sdk/v3";
+import { auth as triggerAuth } from "@trigger.dev/sdk/v3";
 import type { WorkflowTaskPayload } from "@/trigger/types";
 
 interface RouteContext {
@@ -17,6 +18,21 @@ const runRequestSchema = z.object({
   nodes: z.array(z.unknown()).optional(),
   edges: z.array(z.unknown()).optional(),
 });
+
+/**
+ * Helper function to generate a scoped Trigger.dev public token
+ */
+async function generatePublicToken(triggerRunId: string): Promise<string> {
+  const publicToken = await triggerAuth.createPublicToken({
+    scopes: {
+      read: {
+        runs: [triggerRunId],
+      },
+    },
+    expirationTime: "1h",
+  });
+  return publicToken;
+}
 
 export async function POST(request: Request, { params }: RouteContext) {
   try {
@@ -66,14 +82,6 @@ export async function POST(request: Request, { params }: RouteContext) {
       }),
     ]);
 
-    // Determine base URL for internal callbacks
-    const host =
-      request.headers.get("x-forwarded-host") ??
-      request.headers.get("host") ??
-      "localhost:3000";
-    const protocol = host.includes("localhost") ? "http" : "https";
-    const callbackBaseUrl = `${protocol}://${host}`;
-
     // Use nodes/edges from request body if provided (latest canvas state),
     // otherwise fall back to DB-persisted graph
     const nodes = (parsed.data.nodes ?? workflow.nodes) as unknown[];
@@ -87,7 +95,6 @@ export async function POST(request: Request, { params }: RouteContext) {
       edges,
       scope: parsed.data.scope,
       targetNodeIds: parsed.data.targetNodeIds,
-      callbackBaseUrl,
     };
 
     // Check if Trigger.dev is configured
@@ -96,13 +103,38 @@ export async function POST(request: Request, { params }: RouteContext) {
 
     // In local dev (localhost), the Trigger.dev cloud cannot reach our callback URLs.
     // So we only use distributed mode when deployed (non-localhost).
+    const host =
+      request.headers.get("x-forwarded-host") ??
+      request.headers.get("host") ??
+      "localhost:3000";
     const isLocalhost =
       host.includes("localhost") || host.includes("127.0.0.1");
     const useDistributed = !!hasTriggerConfig && !isLocalhost;
 
+    let triggerRunId: string | null = null;
+    let publicToken: string | null = null;
+
     if (useDistributed) {
       // Production: dispatch to Trigger.dev — non-blocking, returns immediately
-      await tasks.trigger("workflow-orchestrate", triggerPayload);
+      const handle = await tasks.trigger(
+        "workflow-orchestrate",
+        triggerPayload,
+      );
+      triggerRunId = handle.id;
+
+      // Store the Trigger.dev run ID in the database
+      await db.run.update({
+        where: { id: run.id },
+        data: { triggerRunId },
+      });
+
+      // Generate a scoped public token for the frontend
+      try {
+        publicToken = await generatePublicToken(triggerRunId);
+      } catch (err) {
+        console.error("Error generating public token:", err);
+        // Token generation failure is not fatal — frontend can retry
+      }
     }
     // In dev/localhost: frontend will orchestrate via mock executors
     // (distributed=false tells the client to use frontend orchestration)
@@ -111,6 +143,8 @@ export async function POST(request: Request, { params }: RouteContext) {
       {
         runId: run.id,
         distributed: useDistributed,
+        triggerRunId,
+        publicToken,
       },
       { status: 201 },
     );

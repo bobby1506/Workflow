@@ -14,7 +14,7 @@ export const cropImageTask = task({
   maxDuration: 180, // 3 minutes — covers 30s delay + FFmpeg processing
 
   run: async (payload: NodeTaskPayload): Promise<NodeTaskResult> => {
-    const { runId, workflowId, nodeId, inputs, callbackBaseUrl } = payload;
+    const { runId, workflowId, nodeId, inputs } = payload;
 
     logger.info("Crop Image task started", {
       runId,
@@ -22,20 +22,6 @@ export const cropImageTask = task({
       nodeId,
       hasImage: !!inputs.imageUrl,
     });
-
-    // Notify backend: node is now RUNNING
-    logger.info("call notify")
-    await notifyNodeStatus(
-      callbackBaseUrl,
-      runId,
-      nodeId,
-      "RUNNING",
-      inputs,
-      undefined,
-      undefined,
-      undefined,
-      workflowId,
-    );
 
     const startTime = Date.now();
 
@@ -98,20 +84,6 @@ export const cropImageTask = task({
         outputUrl: cropResult.outputUrl.substring(0, 80),
       });
 
-      // Notify backend: node SUCCESS
-      logger.info("call notify")
-      await notifyNodeStatus(
-        callbackBaseUrl,
-        runId,
-        nodeId,
-        "SUCCESS",
-        inputs,
-        output,
-        undefined,
-        actualDuration,
-        workflowId,
-      );
-
       return { nodeId, output, durationMs: actualDuration };
     } catch (err) {
       const actualDuration = Date.now() - startTime;
@@ -125,98 +97,7 @@ export const cropImageTask = task({
         durationMs: actualDuration,
       });
 
-      await notifyNodeStatus(
-        callbackBaseUrl,
-        runId,
-        nodeId,
-        "FAILED",
-        inputs,
-        {},
-        errorMsg,
-        actualDuration,
-        workflowId,
-      );
-
       throw new Error(errorMsg);
     }
   },
 });
-
-// ─── Internal callback helper ─────────────────────────────────────────────────
-
-async function notifyNodeStatus(
-  baseUrl: string,
-  runId: string,
-  nodeId: string,
-  status: "RUNNING" | "SUCCESS" | "FAILED",
-  input: Record<string, unknown>,
-  output?: Record<string, unknown>,
-  error?: string,
-  durationMs?: number,
-  workflowId?: string,
-): Promise<void> {
-  try {
-    const e =process.env.INTERNAL_API_SECRET
-    logger.info("Preparing to send node status callback", {
-      nodeId,
-      status,
-      hasOutput: !!output,
-      outputKeys: output ? Object.keys(output) : [],
-      error,
-      baseUrl,
-      e
-    });
-    const callbackUrl = `${baseUrl}/api/internal/node-event`;
-    const secret = process.env.INTERNAL_API_SECRET;
-    
-    logger.info("Sending callback", {
-      nodeId,
-      status,
-      callbackUrl,
-      hasSecret: !!secret,
-      secretLength: secret?.length,
-    });
-
-    const response = await fetch(callbackUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-internal-secret": secret ?? "",
-      },
-      body: JSON.stringify({
-        runId,
-        nodeId,
-        workflowId,
-        status,
-        input,
-        output,
-        error,
-        durationMs,
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      logger.error("Callback failed", {
-        nodeId,
-        status,
-        statusCode: response.status,
-        statusText: response.statusText,
-        responseBody: text.substring(0, 500),
-        callbackUrl,
-      });
-      throw new Error(
-        `Callback failed: ${response.status} ${response.statusText} - ${text}`,
-      );
-    }
-
-    logger.info("Callback successful", { nodeId, status });
-  } catch (err) {
-    logger.error("Failed to notify node status", {
-      nodeId,
-      status,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    throw err; // Re-throw so task failure is visible
-  }
-}

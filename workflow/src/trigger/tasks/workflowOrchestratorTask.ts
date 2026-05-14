@@ -1,4 +1,4 @@
-import { task, logger } from "@trigger.dev/sdk/v3";
+import { task, logger, metadata } from "@trigger.dev/sdk/v3";
 import type { WorkflowTaskPayload } from "../types";
 import type {
   WorkflowNode,
@@ -12,21 +12,14 @@ import { resolveNodeInputs } from "../../features/workflow-editor/engine/inputRe
 import type { NodeOutputRegistry } from "../../features/workflow-editor/engine/inputResolver";
 import { geminiTask } from "./geminiTask";
 import { cropImageTask } from "./cropImageTask";
+import { db } from "@/lib/db";
 
 export const workflowOrchestratorTask = task({
   id: "workflow-orchestrate",
   maxDuration: 600,
 
   run: async (payload: WorkflowTaskPayload): Promise<void> => {
-    const {
-      runId,
-      workflowId,
-      nodes,
-      edges,
-      scope,
-      targetNodeIds,
-      callbackBaseUrl,
-    } = payload;
+    const { runId, workflowId, nodes, edges, scope, targetNodeIds } = payload;
 
     logger.info("Workflow orchestration started", {
       runId,
@@ -42,7 +35,6 @@ export const workflowOrchestratorTask = task({
 
     if (!dag || error) {
       logger.error("DAG compile failed", { error: error?.message });
-      await notify.runStatus(callbackBaseUrl, runId, workflowId, "FAILED");
       return;
     }
 
@@ -62,26 +54,28 @@ export const workflowOrchestratorTask = task({
     );
 
     if (executionNodeIds.length === 0) {
-      await notify.runStatus(callbackBaseUrl, runId, workflowId, "SUCCESS");
       return;
     }
 
-    // Mark all nodes as queued
+    // Initialize metadata tracking
+    let completedNodeCount = 0;
+    const totalNodeCount = executionNodeIds.length;
+
+    // Set initial metadata
+    metadata.set("completedNodeCount", 0);
+    metadata.set("totalNodeCount", totalNodeCount);
+    metadata.set("runStatus", "running");
+
+    // Mark all nodes as queued in metadata
     for (const nodeId of executionNodeIds) {
-      await notify.nodeStatus(
-        callbackBaseUrl,
-        runId,
-        workflowId,
-        nodeId,
-        "QUEUED",
-        {},
-      );
+      metadata.set(`nodes.${nodeId}.status`, "queued");
     }
 
     const outputRegistry: NodeOutputRegistry = new Map();
     const completed = new Set<string>();
     const failed = new Set<string>();
     const skipped = new Set<string>();
+    const nodeRunIds = new Map<string, string>(); // Track NodeRun IDs for updates
 
     function isReady(nodeId: string): boolean {
       const compiled = safeDag.nodes.get(nodeId);
@@ -112,14 +106,11 @@ export const workflowOrchestratorTask = task({
 
       if (shouldSkip(nodeId)) {
         skipped.add(nodeId);
-        await notify.nodeStatus(
-          callbackBaseUrl,
-          runId,
-          workflowId,
-          nodeId,
-          "SKIPPED",
-          {},
-        );
+        // Update metadata for skipped node
+        metadata.set(`nodes.${nodeId}.status`, "skipped");
+        // Increment completed count
+        completedNodeCount = Math.min(completedNodeCount + 1, totalNodeCount);
+        metadata.set("completedNodeCount", completedNodeCount);
         return;
       }
 
@@ -130,16 +121,13 @@ export const workflowOrchestratorTask = task({
         outputRegistry,
       );
 
+      // Update metadata: node is now running
+      metadata.set(`nodes.${nodeId}.status`, "running");
+      const startedAtMs = Date.now();
+      metadata.set(`nodes.${nodeId}.startedAt`, startedAtMs);
+
       // Request-Inputs and Response run inline (no Trigger.dev task)
       if (nodeType === "request-inputs" || nodeType === "response") {
-        await notify.nodeStatus(
-          callbackBaseUrl,
-          runId,
-          workflowId,
-          nodeId,
-          "RUNNING",
-          inputs,
-        );
         await new Promise((r) => setTimeout(r, 100));
         const output =
           nodeType === "request-inputs"
@@ -147,17 +135,40 @@ export const workflowOrchestratorTask = task({
             : { result: inputs.result ?? null };
         outputRegistry.set(nodeId, output);
         completed.add(nodeId);
-        await notify.nodeStatus(
-          callbackBaseUrl,
-          runId,
-          workflowId,
-          nodeId,
-          "SUCCESS",
-          inputs,
-          output,
-          undefined,
-          100,
-        );
+
+        // Update metadata: node succeeded
+        const durationMs = Date.now() - startedAtMs;
+        metadata.set(`nodes.${nodeId}.status`, "success");
+        metadata.set(`nodes.${nodeId}.output`, output as any);
+        metadata.set(`nodes.${nodeId}.durationMs`, durationMs);
+
+        // Increment completed count
+        completedNodeCount = Math.min(completedNodeCount + 1, totalNodeCount);
+        metadata.set("completedNodeCount", completedNodeCount);
+
+        // Persist to database
+        try {
+          const nodeRun = await db.nodeRun.create({
+            data: {
+              runId,
+              nodeId,
+              nodeType,
+              status: "SUCCESS",
+              input: inputs as any,
+              output: output as any,
+              startedAt: new Date(startedAtMs),
+              finishedAt: new Date(),
+              duration: durationMs,
+            },
+          });
+          nodeRunIds.set(nodeId, nodeRun.id);
+        } catch (err) {
+          logger.error("Failed to persist NodeRun to database", {
+            nodeId,
+            error: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
+
         return;
       }
 
@@ -169,11 +180,14 @@ export const workflowOrchestratorTask = task({
           nodeId,
           nodeType,
           inputs,
-          callbackBaseUrl,
         };
         let result: { output: Record<string, unknown>; durationMs: number };
 
         if (nodeType === "gemini") {
+          // Set stream name in metadata before Gemini task starts
+          const streamName = `gemini-response-${nodeId}`;
+          metadata.set(`nodes.${nodeId}.streamName`, streamName);
+
           const handle = await geminiTask.triggerAndWait(taskPayload);
           if (!handle.ok) throw new Error("Gemini task failed");
           result = handle.output;
@@ -183,26 +197,85 @@ export const workflowOrchestratorTask = task({
           result = handle.output;
         } else {
           skipped.add(nodeId);
+          // Update metadata for skipped node
+          metadata.set(`nodes.${nodeId}.status`, "skipped");
+          // Increment completed count
+          completedNodeCount = Math.min(completedNodeCount + 1, totalNodeCount);
+          metadata.set("completedNodeCount", completedNodeCount);
           return;
         }
 
         outputRegistry.set(nodeId, result.output);
         completed.add(nodeId);
+
+        // Update metadata: node succeeded
+        metadata.set(`nodes.${nodeId}.status`, "success");
+        metadata.set(`nodes.${nodeId}.output`, result.output as any);
+        metadata.set(`nodes.${nodeId}.durationMs`, result.durationMs);
+
+        // Increment completed count
+        completedNodeCount = Math.min(completedNodeCount + 1, totalNodeCount);
+        metadata.set("completedNodeCount", completedNodeCount);
+
+        // Persist to database
+        try {
+          const nodeRun = await db.nodeRun.create({
+            data: {
+              runId,
+              nodeId,
+              nodeType,
+              status: "SUCCESS",
+              input: inputs as any,
+              output: result.output as any,
+              startedAt: new Date(startedAtMs),
+              finishedAt: new Date(),
+              duration: result.durationMs,
+            },
+          });
+          nodeRunIds.set(nodeId, nodeRun.id);
+        } catch (err) {
+          logger.error("Failed to persist NodeRun to database", {
+            nodeId,
+            error: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Task failed";
         logger.error("Node execution failed", { nodeId, nodeType, errorMsg });
         failed.add(nodeId);
-        await notify.nodeStatus(
-          callbackBaseUrl,
-          runId,
-          workflowId,
-          nodeId,
-          "FAILED",
-          inputs,
-          {},
-          errorMsg,
-          0,
-        );
+
+        // Update metadata: node failed
+        const durationMs = Date.now() - startedAtMs;
+        metadata.set(`nodes.${nodeId}.status`, "failed");
+        metadata.set(`nodes.${nodeId}.error`, errorMsg);
+        metadata.set(`nodes.${nodeId}.durationMs`, durationMs);
+
+        // Increment completed count
+        completedNodeCount = Math.min(completedNodeCount + 1, totalNodeCount);
+        metadata.set("completedNodeCount", completedNodeCount);
+
+        // Persist to database
+        try {
+          const nodeRun = await db.nodeRun.create({
+            data: {
+              runId,
+              nodeId,
+              nodeType,
+              status: "FAILED",
+              input: inputs as any,
+              error: errorMsg,
+              startedAt: new Date(startedAtMs),
+              finishedAt: new Date(),
+              duration: durationMs,
+            },
+          });
+          nodeRunIds.set(nodeId, nodeRun.id);
+        } catch (err) {
+          logger.error("Failed to persist failed NodeRun to database", {
+            nodeId,
+            error: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
       }
     }
 
@@ -216,14 +289,6 @@ export const workflowOrchestratorTask = task({
         if (shouldSkip(nodeId)) {
           pending.delete(nodeId);
           skipped.add(nodeId);
-          await notify.nodeStatus(
-            callbackBaseUrl,
-            runId,
-            workflowId,
-            nodeId,
-            "SKIPPED",
-            {},
-          );
           continue;
         }
         if (isReady(nodeId)) toStart.push(nodeId);
@@ -242,12 +307,34 @@ export const workflowOrchestratorTask = task({
 
     await scheduleReady();
 
-    let finalStatus: "SUCCESS" | "FAILED" | "PARTIAL";
-    if (failed.size === 0 && skipped.size === 0) finalStatus = "SUCCESS";
-    else if (completed.size === 0) finalStatus = "FAILED";
-    else finalStatus = "PARTIAL";
+    let finalStatus: "success" | "failed" | "partial";
+    if (failed.size === 0 && skipped.size === 0) finalStatus = "success";
+    else if (completed.size === 0) finalStatus = "failed";
+    else finalStatus = "partial";
 
-    await notify.runStatus(callbackBaseUrl, runId, workflowId, finalStatus);
+    // Update metadata with final status
+    metadata.set("runStatus", finalStatus);
+
+    // Update Run record in database
+    try {
+      const finishedAt = new Date();
+      const startedAt = new Date(Date.now() - (Date.now() - Date.now())); // Approximate
+      const duration = finishedAt.getTime() - startedAt.getTime();
+
+      await db.run.update({
+        where: { id: runId },
+        data: {
+          status: finalStatus.toUpperCase() as "SUCCESS" | "FAILED" | "PARTIAL",
+          finishedAt,
+          duration,
+        },
+      });
+    } catch (err) {
+      logger.error("Failed to update Run record in database", {
+        runId,
+        error: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
 
     logger.info("Workflow orchestration completed", {
       runId,
@@ -258,61 +345,3 @@ export const workflowOrchestratorTask = task({
     });
   },
 });
-
-// ─── Callback helpers ─────────────────────────────────────────────────────────
-
-const notify = {
-  async nodeStatus(
-    baseUrl: string,
-    runId: string,
-    workflowId: string,
-    nodeId: string,
-    status: "QUEUED" | "RUNNING" | "SUCCESS" | "FAILED" | "SKIPPED",
-    input: Record<string, unknown>,
-    output?: Record<string, unknown>,
-    error?: string,
-    durationMs?: number,
-  ): Promise<void> {
-    try {
-      await fetch(`${baseUrl}/api/internal/node-event`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-internal-secret": process.env.INTERNAL_API_SECRET ?? "",
-        },
-        body: JSON.stringify({
-          runId,
-          nodeId,
-          workflowId,
-          status,
-          input,
-          output,
-          error,
-          durationMs,
-        }),
-      });
-    } catch {
-      /* non-critical */
-    }
-  },
-
-  async runStatus(
-    baseUrl: string,
-    runId: string,
-    workflowId: string,
-    status: "SUCCESS" | "FAILED" | "PARTIAL",
-  ): Promise<void> {
-    try {
-      await fetch(`${baseUrl}/api/internal/run-complete`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-internal-secret": process.env.INTERNAL_API_SECRET ?? "",
-        },
-        body: JSON.stringify({ runId, workflowId, status }),
-      });
-    } catch {
-      /* non-critical */
-    }
-  },
-};

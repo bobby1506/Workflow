@@ -96,6 +96,9 @@ model Run {
   status     RunStatus @default(RUNNING)
   scope      RunScope  @default(FULL)
 
+  // Trigger.dev run ID — set when task is dispatched
+  triggerRunId String?
+
   nodeRuns   NodeRun[]
 
   startedAt  DateTime  @default(now())

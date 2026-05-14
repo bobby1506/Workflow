@@ -40,6 +40,8 @@ interface WorkflowEditorActions {
     running: boolean,
     scope?: WorkflowEditorState["runScope"],
   ) => void;
+  setTriggerRunId: (triggerRunId: string | null) => void;
+  setPublicToken: (publicToken: string | null) => void;
   markDirty: () => void;
   markSaved: () => void;
   setIsSaving: (isSaving: boolean) => void;
@@ -59,6 +61,8 @@ const initialState: WorkflowEditorState = {
   isSaving: false,
   isRunning: false,
   runScope: null,
+  triggerRunId: null,
+  publicToken: null,
 };
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -160,6 +164,18 @@ export const useWorkflowEditorStore = create<WorkflowEditorStore>()(
       set((state) => {
         state.isRunning = running;
         state.runScope = scope;
+      });
+    },
+
+    setTriggerRunId: (triggerRunId) => {
+      set((state) => {
+        state.triggerRunId = triggerRunId;
+      });
+    },
+
+    setPublicToken: (publicToken) => {
+      set((state) => {
+        state.publicToken = publicToken;
       });
     },
 

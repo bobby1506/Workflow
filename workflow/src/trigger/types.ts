@@ -11,8 +11,6 @@ export interface NodeTaskPayload {
   nodeType: string;
   /** Resolved inputs assembled by the orchestrator */
   inputs: Record<string, unknown>;
-  /** Callback URL for the orchestrator to poll/update */
-  callbackBaseUrl: string;
 }
 
 export interface NodeTaskResult {
@@ -34,6 +32,4 @@ export interface WorkflowTaskPayload {
   scope: "FULL" | "PARTIAL" | "SINGLE_NODE";
   /** Target node IDs for partial/single execution */
   targetNodeIds?: string[];
-  /** Base URL for internal API callbacks */
-  callbackBaseUrl: string;
 }

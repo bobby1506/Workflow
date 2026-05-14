@@ -83,25 +83,6 @@ export function WorkflowDashboard({
     setWorkflows(initialWorkflows);
   }, [initialWorkflows]);
 
-  // Poll only when there's a running workflow — check every 8s, stop when none running
-  useEffect(() => {
-    const hasRunning = workflows.some((w) => w.hasRunning);
-    if (!hasRunning) return; // Don't poll if nothing is running
-
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch("/api/workflows");
-        if (res.ok) {
-          const data = await res.json();
-          setWorkflows(data);
-        }
-      } catch {
-        // non-critical
-      }
-    }, 8000);
-    return () => clearInterval(interval);
-  }, [workflows]);
-
   const isEmpty = workflows.length === 0;
 
   return (

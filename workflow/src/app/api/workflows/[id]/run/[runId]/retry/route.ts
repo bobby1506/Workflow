@@ -62,13 +62,6 @@ export async function POST(request: Request, { params }: RouteContext) {
       }),
     ]);
 
-    const host =
-      request.headers.get("x-forwarded-host") ??
-      request.headers.get("host") ??
-      "localhost:3000";
-    const protocol = host.includes("localhost") ? "http" : "https";
-    const callbackBaseUrl = `${protocol}://${host}`;
-
     const hasTrigger =
       process.env.TRIGGER_SECRET_KEY && process.env.TRIGGER_PROJECT_ID;
 
@@ -80,7 +73,6 @@ export async function POST(request: Request, { params }: RouteContext) {
         edges: workflow.edges as unknown[],
         scope: parsed.data.scope,
         targetNodeIds: parsed.data.targetNodeIds,
-        callbackBaseUrl,
       };
       await tasks.trigger("workflow-orchestrate", triggerPayload);
     }
