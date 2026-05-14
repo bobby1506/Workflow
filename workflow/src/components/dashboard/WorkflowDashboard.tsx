@@ -83,7 +83,7 @@ export function WorkflowDashboard({
     setWorkflows(initialWorkflows);
   }, [initialWorkflows]);
 
-  const isEmpty = workflows.length === 0;
+  const isEmpty = !workflows || workflows.length === 0;
 
   return (
     <div className="min-h-screen bg-white">

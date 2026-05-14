@@ -363,7 +363,7 @@ export function CropImageNode({
     const prefix = "image_field";
     let label = prefix;
     const imageFields = currentFields.filter((f) => f.type === "image");
-    if (imageFields.length > 0) {
+    if (imageFields && imageFields.length > 0) {
       const usedLabels = new Set(currentFields.map((f) => f.label));
       let n = 2;
       while (usedLabels.has(`${prefix}_${n}`)) n++;

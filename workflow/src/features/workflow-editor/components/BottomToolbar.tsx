@@ -74,7 +74,7 @@ function NodePicker({ onSelect, onClose }: NodePickerProps) {
       cat,
       items: NODE_PICKER_ITEMS.filter((item) => item.category === cat),
     }))
-    .filter((g) => g.items.length > 0);
+    .filter((g) => g.items && g.items.length > 0);
 
   const recentItems = NODE_PICKER_ITEMS.filter(
     (item) => recentTypes.includes(item.type) && item.functional,

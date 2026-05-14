@@ -291,24 +291,25 @@ function MultiImageUpload({
           </>
         )}
       </button>
-      {images.length === 0 && (
-        <p className="text-[10px] text-gray-400 flex items-center gap-1 mb-1.5">
-          <svg
-            className="w-3 h-3"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.8}
-              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-          Upload requirements
-        </p>
-      )}
+      {!images ||
+        (images.length === 0 && (
+          <p className="text-[10px] text-gray-400 flex items-center gap-1 mb-1.5">
+            <svg
+              className="w-3 h-3"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.8}
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            Upload requirements
+          </p>
+        ))}
       {images.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-1">
           {images.map((img, i) => (

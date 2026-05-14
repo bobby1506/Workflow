@@ -258,7 +258,7 @@ function DbRunRow({ run, index }: { run: DbRun; index: number }) {
 
       {expanded && (
         <div className="px-4 pb-3 border-t border-gray-100 pt-2 space-y-1">
-          {run.nodeRuns.length === 0 ? (
+          {!run.nodeRuns || run.nodeRuns.length === 0 ? (
             <p className="text-xs text-gray-400">No node details yet</p>
           ) : (
             run.nodeRuns.map((nr) => (

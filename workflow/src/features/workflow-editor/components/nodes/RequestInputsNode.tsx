@@ -712,7 +712,7 @@ export function RequestInputsNode({
 
       {/* Fields — draggable */}
       <div className="divide-y divide-gray-50">
-        {fields.length === 0 ? (
+        {!fields || fields.length === 0 ? (
           <div className="px-4 py-4 text-xs text-gray-400 italic text-center">
             Click + to add a field
           </div>
