@@ -86,9 +86,21 @@ export function useWorkflowRunRealtime({
               setNodeStatus(nodeId, node.status as any);
             }
             if (node.output && typeof node.output === "object") {
-              updateNodeData(nodeId, {
-                response: node.output,
-              });
+              const outputs = node.output as Record<string, any>;
+              const patch: Record<string, any> = {};
+
+              // Map common output fields to their respective node data properties
+              if (outputs.response) patch.response = outputs.response;
+              if (outputs.outputImageUrl)
+                patch.outputImageUrl = outputs.outputImageUrl;
+              if (outputs.result) patch.result = outputs.result;
+
+              // If no recognized keys found, merge the entire output as a fallback
+              if (Object.keys(patch).length === 0) {
+                Object.assign(patch, outputs);
+              }
+
+              updateNodeData(nodeId, patch);
             }
           }
         }

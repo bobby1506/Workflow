@@ -8,7 +8,11 @@ export function ResponseNode({ data, selected }: NodeProps<ResponseNodeType>) {
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
 
   const result = data.result as string | null | undefined;
-  const isImage = typeof result === "string" && result.startsWith("data:image");
+  const isImage =
+    typeof result === "string" &&
+    (result.startsWith("data:image") ||
+      result.startsWith("http") ||
+      /\.(jpg|jpeg|png|webp|gif|avif)($|\?)/i.test(result));
 
   return (
     <div
