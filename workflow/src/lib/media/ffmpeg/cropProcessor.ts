@@ -8,10 +8,17 @@ import type { CropParams, CropResult } from "../types";
 import { uploadCroppedImageToTransloadit } from "../transloadit/uploadService";
 
 // Configure FFmpeg paths
-if (ffmpegPath) {
+// When running in Trigger.dev, use environment variables set by the ffmpeg extension
+// Otherwise, use the static binaries from npm packages (for local dev)
+if (process.env.FFMPEG_PATH) {
+  ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH);
+} else if (ffmpegPath && fs.existsSync(ffmpegPath)) {
   ffmpeg.setFfmpegPath(ffmpegPath);
 }
-if (ffprobePath) {
+
+if (process.env.FFPROBE_PATH) {
+  ffmpeg.setFfprobePath(process.env.FFPROBE_PATH);
+} else if (ffprobePath && fs.existsSync(ffprobePath)) {
   ffmpeg.setFfprobePath(ffprobePath);
 }
 
@@ -125,7 +132,11 @@ function getImageDimensions(
       }
 
       const stream = metadata.streams[0];
-      if (stream && typeof stream.width === "number" && typeof stream.height === "number") {
+      if (
+        stream &&
+        typeof stream.width === "number" &&
+        typeof stream.height === "number"
+      ) {
         resolve({ width: stream.width, height: stream.height });
       } else {
         reject(new Error("Could not determine image dimensions using ffprobe"));

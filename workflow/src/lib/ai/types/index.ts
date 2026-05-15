@@ -4,7 +4,6 @@
 export type AIProvider = "gemini" | "openai" | "claude" | "grok" | "deepseek";
 
 export interface AIImageInput {
-  /** URL (http/https) or base64 data URL */
   url: string;
   mimeType?: string;
 }
@@ -44,11 +43,11 @@ export interface AIExecutionResult {
 
 export interface AIExecutionError {
   code:
-    | "rate_limit"
-    | "invalid_payload"
-    | "empty_prompt"
-    | "api_error"
-    | "asset_error";
+  | "rate_limit"
+  | "invalid_payload"
+  | "empty_prompt"
+  | "api_error"
+  | "asset_error";
   message: string;
   retryable: boolean;
 }

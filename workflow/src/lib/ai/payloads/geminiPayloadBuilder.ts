@@ -21,7 +21,6 @@ export async function buildGeminiPayload(
   const model =
     typeof inputs.model === "string" ? inputs.model : "gemini-2.5-flash";
 
-  // Resolve all image inputs to normalized base64 format
   const rawImages = Array.isArray(inputs.images) ? inputs.images : [];
   const images = await resolveImageInputs(rawImages);
 

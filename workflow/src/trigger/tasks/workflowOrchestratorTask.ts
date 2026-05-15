@@ -282,6 +282,129 @@ export const workflowOrchestratorTask = task({
     const inFlight = new Set<string>();
     const pending = new Set(executionNodeIds);
 
+    async function executeBatchTasks(type: "gemini" | "crop-image", nodeIds: string[]): Promise<void> {
+      const payloads: any[] = [];
+      const startedAts = new Map<string, number>();
+
+      for (const nodeId of nodeIds) {
+        const compiled = safeDag.nodes.get(nodeId)!;
+        const inputs = resolveNodeInputs(nodeId, nodes as WorkflowNode[], compiled, outputRegistry);
+
+        metadata.set(`nodes.${nodeId}.status`, "running");
+        const startedAtMs = Date.now();
+        startedAts.set(nodeId, startedAtMs);
+        metadata.set(`nodes.${nodeId}.startedAt`, startedAtMs);
+
+        if (type === "gemini") {
+          metadata.set(`nodes.${nodeId}.streamName`, `gemini-response-${nodeId}`);
+        }
+
+        payloads.push({
+          payload: {
+            runId,
+            workflowId,
+            nodeId,
+            nodeType: type,
+            inputs
+          }
+        });
+      }
+
+      try {
+        // To this:
+        let results: any[];
+        if (type === "gemini") {
+          const batchResult = await geminiTask.batchTriggerAndWait(payloads);
+          results = batchResult.runs;
+        } else {
+          const batchResult = await cropImageTask.batchTriggerAndWait(payloads);
+          results = batchResult.runs;
+        }
+
+        for (let i = 0; i < results.length; i++) {
+          const result = results[i];
+          const nodeId = nodeIds[i];
+          const startedAtMs = startedAts.get(nodeId)!;
+          const durationMs = Date.now() - startedAtMs;
+
+          if (result.ok) {
+            const output = result.output.output;
+            const actualDuration = result.output.durationMs;
+            outputRegistry.set(nodeId, output);
+            completed.add(nodeId);
+
+            metadata.set(`nodes.${nodeId}.status`, "success");
+            metadata.set(`nodes.${nodeId}.output`, output as any);
+            metadata.set(`nodes.${nodeId}.durationMs`, actualDuration);
+            completedNodeCount = Math.min(completedNodeCount + 1, totalNodeCount);
+            metadata.set("completedNodeCount", completedNodeCount);
+
+            try {
+              const nodeRun = await db.nodeRun.create({
+                data: {
+                  runId, nodeId, nodeType: type, status: "SUCCESS",
+                  input: payloads[i].payload.inputs as any,
+                  output: output as any,
+                  startedAt: new Date(startedAtMs),
+                  finishedAt: new Date(),
+                  duration: actualDuration,
+                }
+              });
+              nodeRunIds.set(nodeId, nodeRun.id);
+            } catch (err) { }
+          } else {
+            failed.add(nodeId);
+            const errorMsg = result.error?.message || "Task failed";
+            metadata.set(`nodes.${nodeId}.status`, "failed");
+            metadata.set(`nodes.${nodeId}.error`, errorMsg);
+            metadata.set(`nodes.${nodeId}.durationMs`, durationMs);
+            completedNodeCount = Math.min(completedNodeCount + 1, totalNodeCount);
+            metadata.set("completedNodeCount", completedNodeCount);
+
+            try {
+              const nodeRun = await db.nodeRun.create({
+                data: {
+                  runId, nodeId, nodeType: type, status: "FAILED",
+                  input: payloads[i].payload.inputs as any,
+                  error: errorMsg,
+                  startedAt: new Date(startedAtMs),
+                  finishedAt: new Date(),
+                  duration: durationMs,
+                }
+              });
+              nodeRunIds.set(nodeId, nodeRun.id);
+            } catch (err) { }
+          }
+        }
+      } catch (err) {
+        for (let i = 0; i < nodeIds.length; i++) {
+          const nodeId = nodeIds[i];
+          failed.add(nodeId);
+          const startedAtMs = startedAts.get(nodeId)!;
+          const durationMs = Date.now() - startedAtMs;
+          const errorMsg = err instanceof Error ? err.message : "Batch execution failed";
+
+          metadata.set(`nodes.${nodeId}.status`, "failed");
+          metadata.set(`nodes.${nodeId}.error`, errorMsg);
+          metadata.set(`nodes.${nodeId}.durationMs`, durationMs);
+          completedNodeCount = Math.min(completedNodeCount + 1, totalNodeCount);
+          metadata.set("completedNodeCount", completedNodeCount);
+          try {
+            await db.nodeRun.create({
+              data: {
+                runId, nodeId, nodeType: type, status: "FAILED",
+                input: payloads[i].payload.inputs as any,
+                error: errorMsg,
+                startedAt: new Date(startedAtMs),
+                finishedAt: new Date(),
+                duration: durationMs,
+              }
+            });
+          } catch (e) { }
+        }
+      }
+    }
+
     async function scheduleReady(): Promise<void> {
       const toStart: string[] = [];
       for (const nodeId of pending) {
@@ -293,16 +416,56 @@ export const workflowOrchestratorTask = task({
         }
         if (isReady(nodeId)) toStart.push(nodeId);
       }
+
       if (toStart.length === 0) return;
-      await Promise.all(
-        toStart.map(async (nodeId) => {
-          pending.delete(nodeId);
-          inFlight.add(nodeId);
+
+      const inlineNodes: string[] = [];
+      const geminiNodes: string[] = [];
+      const cropNodes: string[] = [];
+
+      for (const nodeId of toStart) {
+        pending.delete(nodeId);
+        inFlight.add(nodeId);
+        const node = (nodes as WorkflowNode[]).find((n) => n.id === nodeId);
+        const type = node?.type;
+        if (type === "request-inputs" || type === "response") inlineNodes.push(nodeId);
+        else if (type === "gemini") geminiNodes.push(nodeId);
+        else if (type === "crop-image") cropNodes.push(nodeId);
+        else {
+          inFlight.delete(nodeId);
+          skipped.add(nodeId);
+          metadata.set(`nodes.${nodeId}.status`, "skipped");
+        }
+      }
+
+      if (inlineNodes.length > 0) {
+        await Promise.all(inlineNodes.map(async (nodeId) => {
           await executeOneNode(nodeId);
           inFlight.delete(nodeId);
-          await scheduleReady();
-        }),
-      );
+        }));
+      }
+
+      if (geminiNodes.length > 0) {
+        if (geminiNodes.length === 1) {
+          await executeOneNode(geminiNodes[0]);
+          inFlight.delete(geminiNodes[0]);
+        } else {
+          await executeBatchTasks("gemini", geminiNodes);
+          for (const id of geminiNodes) inFlight.delete(id);
+        }
+      }
+
+      if (cropNodes.length > 0) {
+        if (cropNodes.length === 1) {
+          await executeOneNode(cropNodes[0]);
+          inFlight.delete(cropNodes[0]);
+        } else {
+          await executeBatchTasks("crop-image", cropNodes);
+          for (const id of cropNodes) inFlight.delete(id);
+        }
+      }
+
+      await scheduleReady();
     }
 
     await scheduleReady();
