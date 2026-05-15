@@ -3,8 +3,6 @@
 import { useCallback, useRef } from "react";
 import { useWorkflowEditorStore } from "../store/workflowEditorStore";
 import { useExecutionStore } from "../store/executionStore";
-import { useWorkflowRunRealtime } from "./useWorkflowRunRealtime";
-import { useWorkflowStream } from "./useWorkflowStream";
 import { compileDAG, computeExecutionSubgraph } from "../engine/dagCompiler";
 import { resolveNodeInputs } from "../engine/inputResolver";
 import { executeNode } from "../engine/mockExecutors";
@@ -30,34 +28,8 @@ export function useWorkflowExecution() {
   const setIsRunning = useWorkflowEditorStore((s) => s.setIsRunning);
   const setTriggerRunId = useWorkflowEditorStore((s) => s.setTriggerRunId);
   const setPublicToken = useWorkflowEditorStore((s) => s.setPublicToken);
-  const triggerRunId = useWorkflowEditorStore((s) => s.triggerRunId);
-  const publicToken = useWorkflowEditorStore((s) => s.publicToken);
-  const nodes = useWorkflowEditorStore((s) => s.nodes);
 
   const isExecutingRef = useRef(false);
-
-  // Subscribe to realtime updates when triggerRunId and publicToken are available
-  useWorkflowRunRealtime({
-    triggerRunId,
-    publicToken,
-  });
-
-  // Subscribe to Gemini streams for the first Gemini node found.
-  // IMPORTANT: hooks must be called unconditionally — pass null when no Gemini
-  // node exists; useWorkflowStream handles null params with an early return.
-  // const firstGeminiNode = nodes.find((node) => node.type === "gemini");
-  const firstGeminiNode = (nodes ?? []).find((node) => node.type === "gemini");
-  const geminiNodeData = firstGeminiNode?.data as
-    | Record<string, unknown>
-    | undefined;
-  const geminiStreamName = (geminiNodeData?.streamName as string) ?? null;
-
-  useWorkflowStream({
-    triggerRunId,
-    nodeId: firstGeminiNode?.id ?? null,
-    streamName: geminiStreamName,
-    publicToken,
-  });
 
   // ─── Frontend fallback orchestrator (dev mode / no Trigger.dev) ─────────────
 

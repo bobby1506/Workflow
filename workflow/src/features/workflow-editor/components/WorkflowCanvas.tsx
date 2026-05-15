@@ -28,6 +28,8 @@ import { useExecutionStore } from "../store/executionStore";
 import { useHistoryStore } from "../store/historyStore";
 import { useAutoSave } from "../hooks/useAutoSave";
 import { useRealtimeExecution } from "../hooks/useRealtimeExecution";
+import { useWorkflowRunRealtime } from "../hooks/useWorkflowRunRealtime";
+import { useWorkflowStream } from "../hooks/useWorkflowStream";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { DEFAULT_EDGE_OPTIONS, NON_DELETABLE_NODES } from "../constants";
 import { isValidConnection } from "../utils/edgeValidation";
@@ -78,6 +80,23 @@ function CanvasInner({
 
   // SSE realtime execution sync
   useRealtimeExecution();
+
+  // Trigger.dev Realtime hooks — consolidated at top level to avoid loops
+  const triggerRunId = useWorkflowEditorStore((s) => s.triggerRunId);
+  const publicToken = useWorkflowEditorStore((s) => s.publicToken);
+
+  useWorkflowRunRealtime({ triggerRunId, publicToken });
+
+  // Gemini streaming for first gemini node
+  const firstGeminiNode = nodes.find((n) => n.type === "gemini");
+  const geminiStreamName = (firstGeminiNode?.data?.streamName as string) ?? null;
+
+  useWorkflowStream({
+    triggerRunId,
+    nodeId: firstGeminiNode?.id ?? null,
+    streamName: geminiStreamName,
+    publicToken,
+  });
 
   // Keyboard shortcuts
   useKeyboardShortcuts();

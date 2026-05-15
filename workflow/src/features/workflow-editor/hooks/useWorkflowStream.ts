@@ -18,8 +18,10 @@ export function useWorkflowStream({
   streamName,
   publicToken,
 }: UseWorkflowStreamParams): void {
-  const executionStore = useExecutionStore();
-  const workflowEditorStore = useWorkflowEditorStore();
+  const recordNodeFailure = useExecutionStore((s) => s.recordNodeFailure);
+  const updateStreamingText = useExecutionStore((s) => s.updateStreamingText);
+  const setNodeStatus = useExecutionStore((s) => s.setNodeStatus);
+  const updateNodeData = useWorkflowEditorStore((s) => s.updateNodeData);
 
   const accumulatedTextRef = useRef<string>("");
   const previousPartsLengthRef = useRef<number>(0);
@@ -39,7 +41,7 @@ export function useWorkflowStream({
 
     if (error) {
       console.error(`Stream error for ${streamName}:`, error);
-      executionStore.recordNodeFailure(nodeId, error.message, 0);
+      recordNodeFailure(nodeId, error.message, 0);
       return;
     }
 
@@ -51,8 +53,8 @@ export function useWorkflowStream({
         }
       }
       previousPartsLengthRef.current = parts.length;
-      executionStore.updateStreamingText(nodeId, accumulatedTextRef.current);
-      workflowEditorStore.updateNodeData(nodeId, {
+      updateStreamingText(nodeId, accumulatedTextRef.current);
+      updateNodeData(nodeId, {
         response: accumulatedTextRef.current,
       });
     }
@@ -63,8 +65,9 @@ export function useWorkflowStream({
     streamName,
     triggerRunId,
     publicToken,
-    executionStore,
-    workflowEditorStore,
+    recordNodeFailure,
+    updateStreamingText,
+    updateNodeData,
   ]);
 
   useEffect(() => {
@@ -75,10 +78,10 @@ export function useWorkflowStream({
       parts.length > 0 &&
       previousPartsLengthRef.current === parts.length
     ) {
-      const currentStatus = executionStore.nodeStatuses.get(nodeId);
+      const currentStatus = useExecutionStore.getState().nodeStatuses.get(nodeId);
       if (currentStatus !== "success" && currentStatus !== "failed") {
-        executionStore.setNodeStatus(nodeId, "success");
+        setNodeStatus(nodeId, "success");
       }
     }
-  }, [parts, nodeId, streamName, triggerRunId, publicToken, executionStore]);
+  }, [parts, nodeId, streamName, triggerRunId, publicToken, setNodeStatus]);
 }

@@ -14,8 +14,10 @@ export function useWorkflowRunRealtime({
   triggerRunId,
   publicToken,
 }: UseWorkflowRunRealtimeParams): void {
-  const executionStore = useExecutionStore();
-  const workflowEditorStore = useWorkflowEditorStore();
+  const setNodeStatus = useExecutionStore((s) => s.setNodeStatus);
+  const finishRun = useExecutionStore((s) => s.finishRun);
+  const updateNodeData = useWorkflowEditorStore((s) => s.updateNodeData);
+  const setIsRunning = useWorkflowEditorStore((s) => s.setIsRunning);
 
   const hasFinishedRef = useRef(false);
   const previousRunStatusRef = useRef<string | null>(null);
@@ -81,10 +83,10 @@ export function useWorkflowRunRealtime({
           if (typeof nodeData === "object" && nodeData !== null) {
             const node = nodeData as Record<string, unknown>;
             if (node.status && typeof node.status === "string") {
-              executionStore.setNodeStatus(nodeId, node.status as any);
+              setNodeStatus(nodeId, node.status as any);
             }
             if (node.output && typeof node.output === "object") {
-              workflowEditorStore.updateNodeData(nodeId, {
+              updateNodeData(nodeId, {
                 response: node.output,
               });
             }
@@ -102,8 +104,8 @@ export function useWorkflowRunRealtime({
           !hasFinishedRef.current
         ) {
           hasFinishedRef.current = true;
-          executionStore.finishRun(runStatus as any);
-          workflowEditorStore.setIsRunning(false, null);
+          finishRun(runStatus as any);
+          setIsRunning(false, null);
         }
       }
     }
@@ -116,8 +118,16 @@ export function useWorkflowRunRealtime({
           : run.status === "FAILED"
             ? "failed"
             : "partial";
-      executionStore.finishRun(status as any);
-      workflowEditorStore.setIsRunning(false, null);
+      finishRun(status as any);
+      setIsRunning(false, null);
     }
-  }, [run, triggerRunId, publicToken, executionStore, workflowEditorStore]);
+  }, [
+    run,
+    triggerRunId,
+    publicToken,
+    setNodeStatus,
+    finishRun,
+    updateNodeData,
+    setIsRunning,
+  ]);
 }
