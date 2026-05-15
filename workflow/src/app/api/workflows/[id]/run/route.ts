@@ -101,15 +101,9 @@ export async function POST(request: Request, { params }: RouteContext) {
     const hasTriggerConfig =
       process.env.TRIGGER_SECRET_KEY && process.env.TRIGGER_PROJECT_ID;
 
-    // In local dev (localhost), the Trigger.dev cloud cannot reach our callback URLs.
-    // So we only use distributed mode when deployed (non-localhost).
-    const host =
-      request.headers.get("x-forwarded-host") ??
-      request.headers.get("host") ??
-      "localhost:3000";
-    const isLocalhost =
-      host.includes("localhost") || host.includes("127.0.0.1");
-    const useDistributed = !!hasTriggerConfig && !isLocalhost;
+    // Use distributed mode (Trigger.dev) whenever config is available.
+    // In local dev, this requires running 'npm run trigger:dev' to tunnel callbacks.
+    const useDistributed = !!hasTriggerConfig;
 
     let triggerRunId: string | null = null;
     let publicToken: string | null = null;

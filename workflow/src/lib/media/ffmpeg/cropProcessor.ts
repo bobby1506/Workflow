@@ -1,10 +1,19 @@
-import sharp from "sharp";
+import ffmpeg from "fluent-ffmpeg";
+import ffmpegPath from "ffmpeg-static";
+import { path as ffprobePath } from "ffprobe-static";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import type { CropParams, CropResult } from "../types";
 import { uploadCroppedImageToTransloadit } from "../transloadit/uploadService";
 
+// Configure FFmpeg paths
+if (ffmpegPath) {
+  ffmpeg.setFfmpegPath(ffmpegPath);
+}
+if (ffprobePath) {
+  ffmpeg.setFfprobePath(ffprobePath);
+}
 
 /**
  * Downloads an image from a URL or data URL to a temp file.
@@ -28,9 +37,8 @@ async function downloadImage(url: string, destPath: string): Promise<void> {
 }
 
 /**
- * Crops an image using Sharp with percentage-based parameters.
+ * Crops an image using FFmpeg with percentage-based parameters.
  * Uploads the result to Transloadit CDN and returns the CDN URL.
- * Falls back to a base64 data URL if Transloadit is not configured or fails.
  */
 export async function cropImageWithFFmpeg(
   imageUrl: string,
@@ -45,7 +53,7 @@ export async function cropImageWithFFmpeg(
     // Download source image
     await downloadImage(imageUrl, inputPath);
 
-    // Get image dimensions using sharp
+    // Get image dimensions using ffprobe
     const dimensions = await getImageDimensions(inputPath);
     const { width: imgW, height: imgH } = dimensions;
 
@@ -61,19 +69,20 @@ export async function cropImageWithFFmpeg(
     const clampedW = Math.min(cropW, imgW - clampedX);
     const clampedH = Math.min(cropH, imgH - clampedY);
 
-    // Run crop using Sharp so we do not depend on external FFmpeg binaries.
-    await sharp(inputPath)
-      .extract({
-        left: clampedX,
-        top: clampedY,
-        width: clampedW,
-        height: clampedH,
-      })
-      .jpeg()
-      .toFile(outputPath);
+    // Run crop using FFmpeg
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(inputPath)
+        .videoFilters(`crop=${clampedW}:${clampedH}:${clampedX}:${clampedY}`)
+        .output(outputPath)
+        .on("end", () => resolve())
+        .on("error", (err) => {
+          console.error("[FFmpeg] Crop error:", err);
+          reject(new Error(`FFmpeg crop failed: ${err.message}`));
+        })
+        .run();
+    });
 
     // Upload cropped image to Transloadit CDN
-    // Throws if Transloadit is not configured or upload fails
     const outputBuffer = fs.readFileSync(outputPath);
     const size = outputBuffer.length;
 
@@ -89,27 +98,38 @@ export async function cropImageWithFFmpeg(
       size,
     };
   } finally {
-    try {
-      fs.unlinkSync(inputPath);
-    } catch {
-      /* ignore */
-    }
-    try {
-      fs.unlinkSync(outputPath);
-    } catch {
-      /* ignore */
-    }
+    // Cleanup temp files
+    [inputPath, outputPath].forEach((p) => {
+      if (fs.existsSync(p)) {
+        try {
+          fs.unlinkSync(p);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+    });
   }
 }
 
+/**
+ * Uses ffprobe to determine image dimensions.
+ */
 function getImageDimensions(
   filePath: string,
 ): Promise<{ width: number; height: number }> {
-  return sharp(filePath).metadata().then((metadata) => {
-    if (!metadata.width || !metadata.height) {
-      throw new Error("Could not determine image dimensions");
-    }
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err, metadata) => {
+      if (err) {
+        console.error("[FFmpeg] Probe error:", err);
+        return reject(new Error(`FFmpeg probe failed: ${err.message}`));
+      }
 
-    return { width: metadata.width, height: metadata.height };
+      const stream = metadata.streams[0];
+      if (stream && typeof stream.width === "number" && typeof stream.height === "number") {
+        resolve({ width: stream.width, height: stream.height });
+      } else {
+        reject(new Error("Could not determine image dimensions using ffprobe"));
+      }
+    });
   });
 }

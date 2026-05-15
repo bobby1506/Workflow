@@ -213,6 +213,7 @@ function DbRunRow({ run, index }: { run: DbRun; index: number }) {
   const [expanded, setExpanded] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const workflowId = useWorkflowEditorStore((s) => s.workflowId);
+  const nodes = useWorkflowEditorStore((s) => s.nodes);
 
   async function handleRetry(e: React.MouseEvent) {
     e.stopPropagation();
@@ -261,17 +262,21 @@ function DbRunRow({ run, index }: { run: DbRun; index: number }) {
           {!run.nodeRuns || run.nodeRuns.length === 0 ? (
             <p className="text-xs text-gray-400">No node details yet</p>
           ) : (
-            run.nodeRuns.map((nr) => (
-              <div key={nr.id} className="flex items-center gap-2 py-1">
-                <NodeStatusIcon status={nr.status} />
-                <span className="flex-1 text-xs text-gray-600 truncate font-mono">
-                  {nr.nodeId}
-                </span>
-                <span className="text-[10px] text-gray-400">
-                  {formatDuration(nr.duration)}
-                </span>
-              </div>
-            ))
+            run.nodeRuns.map((nr) => {
+              const node = nodes.find((n) => n.id === nr.nodeId);
+              const name = node ? ((node.data as any).label || node.type) : nr.nodeId;
+              return (
+                <div key={nr.id} className="flex items-center gap-2 py-1">
+                  <NodeStatusIcon status={nr.status} />
+                  <span className="flex-1 text-xs text-gray-600 truncate">
+                    {name} <span className="text-gray-400 font-mono">({nr.nodeId})</span>
+                  </span>
+                  <span className="text-[10px] text-gray-400">
+                    {formatDuration(nr.duration)}
+                  </span>
+                </div>
+              );
+            })
           )}
           {(run.status === "FAILED" || run.status === "PARTIAL") && (
             <button
@@ -290,6 +295,7 @@ function DbRunRow({ run, index }: { run: DbRun; index: number }) {
 
 function MemoryRunRow({ run, index }: { run: RunRecord; index: number }) {
   const [expanded, setExpanded] = useState(run.status === "running");
+  const nodes = useWorkflowEditorStore((s) => s.nodes);
   const credits = run.durationMs
     ? `${((run.durationMs / 1000) * 0.01).toFixed(2)}M`
     : "0M";
@@ -322,17 +328,21 @@ function MemoryRunRow({ run, index }: { run: RunRecord; index: number }) {
 
       {expanded && (
         <div className="px-4 pb-3 border-t border-gray-100 pt-2 space-y-1">
-          {run.nodeRecords.map((record) => (
-            <div key={record.nodeId} className="flex items-center gap-2 py-1">
-              <NodeStatusIcon status={record.status} />
-              <span className="flex-1 text-xs text-gray-600 truncate font-mono">
-                {record.nodeId}
-              </span>
-              <span className="text-[10px] text-gray-400">
-                {formatDuration(record.durationMs)}
-              </span>
-            </div>
-          ))}
+          {run.nodeRecords.map((record) => {
+            const node = nodes.find((n) => n.id === record.nodeId);
+            const name = node ? ((node.data as any).label || node.type) : record.nodeId;
+            return (
+              <div key={record.nodeId} className="flex items-center gap-2 py-1">
+                <NodeStatusIcon status={record.status} />
+                <span className="flex-1 text-xs text-gray-600 truncate">
+                  {name} <span className="text-gray-400 font-mono">({record.nodeId})</span>
+                </span>
+                <span className="text-[10px] text-gray-400">
+                  {formatDuration(record.durationMs)}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

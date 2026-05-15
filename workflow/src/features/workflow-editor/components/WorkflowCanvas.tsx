@@ -101,7 +101,7 @@ function CanvasInner({
   // Keyboard shortcuts
   useKeyboardShortcuts();
 
-  // Initialize store on mount
+  // Initialize store on mount and clear previous executions
   useEffect(() => {
     initWorkflow({
       workflowId,
@@ -110,6 +110,9 @@ function CanvasInner({
       edges: initialEdges,
       viewport: initialViewport,
     });
+    // Clear execution states when navigating to a new workflow
+    useExecutionStore.getState().resetNodeStatuses();
+    useExecutionStore.getState().clearActiveRun();
   }, [
     workflowId,
     workflowName,

@@ -29,8 +29,6 @@ export function useWorkflowExecution() {
   const setTriggerRunId = useWorkflowEditorStore((s) => s.setTriggerRunId);
   const setPublicToken = useWorkflowEditorStore((s) => s.setPublicToken);
 
-  const isExecutingRef = useRef(false);
-
   // ─── Frontend fallback orchestrator (dev mode / no Trigger.dev) ─────────────
 
   async function runFrontendOrchestration(
@@ -309,7 +307,6 @@ export function useWorkflowExecution() {
 
     useExecutionStore.getState().finishRun(finalStatus);
     setIsRunning(false, null);
-    isExecutingRef.current = false;
 
     // Update DB run status
     const dbStatus =
@@ -342,10 +339,10 @@ export function useWorkflowExecution() {
       console.log("[useWorkflowExecution] runExecution called with:", {
         scope,
         targetNodeIds,
-        isAlreadyExecuting: isExecutingRef.current,
+        isAlreadyExecuting: useWorkflowEditorStore.getState().isRunning,
       });
 
-      if (isExecutingRef.current) {
+      if (useWorkflowEditorStore.getState().isRunning) {
         console.log("[useWorkflowExecution] Already executing, skipping");
         return;
       }
@@ -413,8 +410,6 @@ export function useWorkflowExecution() {
           typeof dag.removedEdges,
         );
       }
-
-      isExecutingRef.current = true;
 
       const scopeMap = {
         full: "FULL" as const,

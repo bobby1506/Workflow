@@ -97,7 +97,7 @@ export function WorkflowActions({
                 if (e.key === "Enter") handleRename();
                 if (e.key === "Escape") setRenaming(false);
               }}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none mb-4"
+              className="w-full px-3 py-2 text-sm text-gray-900 border border-gray-200 rounded-lg outline-none mb-4"
             />
             <div className="flex justify-end gap-2">
               <button

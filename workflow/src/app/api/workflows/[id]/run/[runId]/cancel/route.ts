@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
 import { RunStatus } from "@/generated/prisma/client";
+import { runs } from "@trigger.dev/sdk/v3";
 
 interface RouteContext {
   params: Promise<{ id: string; runId: string }>;
@@ -28,7 +29,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
 
     const run = await db.run.findFirst({
       where: { id: runId, workflowId, userId: user.id },
-      select: { id: true, status: true, startedAt: true },
+      select: { id: true, status: true, startedAt: true, triggerRunId: true },
     });
 
     if (!run)
@@ -38,6 +39,16 @@ export async function POST(_request: Request, { params }: RouteContext) {
         { error: "Run is not currently running" },
         { status: 400 },
       );
+    }
+
+    // Cancel the actual execution in Trigger.dev if it's a distributed run
+    if (run.triggerRunId) {
+      try {
+        await runs.cancel(run.triggerRunId);
+        console.log(`[Cancel API] Successfully cancelled Trigger.dev run ${run.triggerRunId}`);
+      } catch (triggerErr) {
+        console.error(`[Cancel API] Failed to cancel Trigger.dev run ${run.triggerRunId}:`, triggerErr);
+      }
     }
 
     const finishedAt = new Date();

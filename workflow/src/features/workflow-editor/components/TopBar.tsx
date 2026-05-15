@@ -39,11 +39,22 @@ export function TopBar({
     setTimeout(() => inputRef.current?.select(), 0);
   };
 
-  const handleNameBlur = () => {
+  const handleNameBlur = async () => {
     setIsEditingName(false);
     const trimmed = nameValue.trim();
     if (trimmed && trimmed !== workflowName) {
       setWorkflowName(trimmed);
+      if (workflowId) {
+        try {
+          await fetch(`/api/workflows/${workflowId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: trimmed }),
+          });
+        } catch (e) {
+          console.error("Failed to rename workflow", e);
+        }
+      }
     } else {
       setNameValue(workflowName);
     }

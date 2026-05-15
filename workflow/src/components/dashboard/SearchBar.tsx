@@ -44,7 +44,7 @@ export function SearchBar({
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder={placeholder}
-        className="w-56 pl-9 pr-8 py-2 text-sm bg-white border border-gray-200 rounded-xl outline-none focus:border-gray-300 placeholder:text-gray-400 transition-colors"
+        className="w-56 pl-9 pr-8 py-2 text-sm text-gray-900 bg-white border border-gray-200 rounded-xl outline-none focus:border-gray-300 placeholder:text-gray-400 transition-colors"
       />
       {value && (
         <button

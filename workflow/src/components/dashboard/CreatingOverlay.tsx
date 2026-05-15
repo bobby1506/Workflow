@@ -41,16 +41,17 @@ export function CreatingOverlay({ visible }: CreatingOverlayProps) {
         >
           <circle cx="50" cy="50" r="4" fill="rgba(80,60,80,0.7)" />
         </svg>
-        {/* Partial arc at bottom */}
+        {/* Rotating half circle at bottom */}
         <svg
-          className="absolute inset-0 w-full h-full"
+          className="absolute inset-0 w-full h-full animate-spin"
           viewBox="0 0 100 100"
           fill="none"
+          style={{ animationDuration: "1.5s" }}
         >
           <path
-            d="M 50 94 A 44 44 0 0 0 94 50"
-            stroke="rgba(60,40,60,0.8)"
-            strokeWidth="2"
+            d="M 6 50 A 44 44 0 0 1 94 50"
+            stroke="#000000"
+            strokeWidth="2.5"
             strokeLinecap="round"
           />
         </svg>
