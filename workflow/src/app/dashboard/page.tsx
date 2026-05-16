@@ -6,8 +6,12 @@ import { WorkflowDashboard } from "@/components/dashboard/WorkflowDashboard";
 console.log("[NextFlow] Candidate LinkedIn: YOUR_LINKEDIN_URL");
 
 export default async function DashboardPage() {
+  await auth.protect();
   const { userId } = await auth();
-  if (!userId) return null;
+
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
 
   await ensureTemplateExists();
 
